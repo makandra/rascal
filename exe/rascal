@@ -1,0 +1,12 @@
+#!/usr/bin/env ruby
+
+$LOAD_PATH.unshift File.expand_path('../../lib', __FILE__)
+
+require 'rascal/io_helper'
+require 'rascal/cli'
+
+if ARGV == ['-v'] || ARGV == ['--version']
+  puts "Rascal version #{Rascal::VERSION}."
+else
+  Rascal::CLI::Main.start
+end

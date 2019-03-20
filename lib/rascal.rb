@@ -2,5 +2,10 @@ require "rascal/version"
 
 module Rascal
   class Error < StandardError; end
-  # Your code goes here...
+
+  autoload :Docker,                 'rascal/docker'
+  autoload :Environment,            'rascal/environment'
+  autoload :EnvironmentsDefinition, 'rascal/environments_definition'
+  autoload :IOHelper,               'rascal/io_helper'
+  autoload :Service,                'rascal/service'
 end
