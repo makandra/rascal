@@ -26,7 +26,7 @@ module Rascal
             'container',
             'inspect',
             id,
-            output: :json
+            output: :json,
           ).first
           !!container_info.dig('State', 'Running')
         else
@@ -56,7 +56,7 @@ module Rascal
           *(['--network', network.id] if network),
           *(['--network-alias', network_alias] if network_alias),
           @image,
-          output: :id
+          output: :id,
         )
       end
 
@@ -81,7 +81,7 @@ module Rascal
             err: stderr,
             in: stdin,
           },
-          allow_failure: allow_failure
+          allow_failure: allow_failure,
         )
       end
 
@@ -99,7 +99,7 @@ module Rascal
           '--all',
           '--quiet',
           '--filter', "name=^/#{@prefixed_name}$",
-          output: :id
+          output: :id,
         )
       end
 
