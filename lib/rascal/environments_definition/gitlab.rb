@@ -15,17 +15,18 @@ module Rascal
       end
 
       class Config
-        def initialize(config)
+        def initialize(config, prefix)
           @config = config
+          @prefix = prefix
         end
 
         def get(key, *default)
           if @config.has_key?(key)
             @config[key]
           elsif default.size > 0
-            default
+            default.first
           else
-            raise Error.new("missing config for '.rascal.#{key}'")
+            raise Error.new("missing config for '#{@prefix}.#{key}'")
           end
         end
       end
@@ -56,7 +57,7 @@ module Rascal
       def environments
         @environments ||= begin
           @info.collect do |key, environment_config|
-            config = Config.new(deep_merge(environment_config, @rascal_config))
+            config = Config.new(deep_merge(environment_config, @rascal_config), key)
             docker_repo_dir = config.get('repo_dir')
             unless key.start_with?('.')
               Environment.new(key,

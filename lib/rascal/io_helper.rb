@@ -2,10 +2,14 @@ module Rascal
   module IOHelper
     class << self
       attr_accessor :stdout, :stdin, :stderr
+
+      def setup
+        @stdout = $stdout
+        @stderr = $stderr
+        @stdin = $stdin
+      end
     end
-    @stdout = $stdout
-    @stderr = $stderr
-    @stdin = $stdin
+    setup
 
     def say(message)
       stdout.puts(message)

@@ -4,6 +4,7 @@ $LOAD_PATH.unshift File.expand_path('../../lib', __FILE__)
 
 require 'rascal/io_helper'
 require 'rascal/cli'
+require 'rascal/version'
 
 if ARGV == ['-v'] || ARGV == ['--version']
   puts "Rascal version #{Rascal::VERSION}."

@@ -22,6 +22,11 @@ module Rascal
         true
       end
 
+      def self.start(*)
+        IOHelper.setup
+        super
+      end
+
 
       map "shell" => "_shell"
       desc 'shell ENVIRONMENT', 'Start a docker shell for the given environment'

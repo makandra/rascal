@@ -6,20 +6,6 @@ module Rascal
     class Interface
       class Error < Rascal::Error; end
 
-      class << self
-        def method_missing(name, *args)
-          if instance_methods.include?(name)
-            new.public_send(name, *args)
-          else
-            super
-          end
-        end
-
-        def respond_to_missing?(name)
-          instance_methods.include?(name)
-        end
-      end
-
       def pull(image, stdout: nil)
         run_cli(
           'pull',
@@ -28,12 +14,13 @@ module Rascal
         )
       end
 
-      def inspect_image(image)
+      def inspect_image(image, allow_failure: false)
         run_cli(
           'image',
           'inspect',
           image.to_s,
           output: :json,
+          allow_failure: allow_failure,
         ).first
       end
 
@@ -154,7 +141,7 @@ module Rascal
         if network
           args += ['--network', network.to_s]
         end
-        pid = Process.spawn(
+        exit_status = spawn(
           env,
           'docker',
           'container',
@@ -165,24 +152,27 @@ module Rascal
           *command,
           process_redirections,
         )
-        Process.wait(pid)
-        unless allow_failure || $?.success?
+        unless allow_failure || exit_status.success?
           raise Error, "docker container run failed"
         end
       end
 
       private
 
-      def run_cli(*command, output: :ignore, stdout: nil, redirect_io: {})
+      def run_cli(*command, output: :ignore, stdout: nil, redirect_io: {}, allow_failure: false)
         save_stdout = ''
         save_stderr = ''
-        exit_status = Open3.popen3('docker', *command) do |docker_stdin, docker_stdout, docker_stderr, wait_thr|
+        exit_status = nil
+        popen3('docker', *command) do |docker_stdin, docker_stdout, docker_stderr, wait_thr|
           docker_stdin.close
-          read_lines(docker_stdout, save_stdout, stdout)
-          read_lines(docker_stderr, save_stderr)
-          wait_thr.value
+          output_threads = [
+            read_lines(docker_stdout, save_stdout, stdout),
+            read_lines(docker_stderr, save_stderr),
+          ]
+          exit_status = wait_thr.value
+          output_threads.each(&:join)
         end
-        unless exit_status.success?
+        unless allow_failure || exit_status.success?
           raise Error, "docker command '#{command.join(' ')}' failed with error:\n#{save_stderr}"
         end
         case output
@@ -201,7 +191,15 @@ module Rascal
         end
       end
 
-      private
+      def spawn(*command)
+        pid = Process.spawn(*command)
+        Process.wait(pid)
+        $?
+      end
+
+      def popen3(*command, &block)
+        Open3.popen3(*command, &block)
+      end
 
       def read_lines(io, save_to, output_to = nil)
         Thread.new do

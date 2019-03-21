@@ -7,19 +7,19 @@ module Rascal
       end
 
       def create
-        Interface.create_network(@prefixed_name)
+        Docker.interface.create_network(@prefixed_name)
       end
 
       def exists?
-        !!Interface.id_for_network_name(@prefixed_name)
+        !!Docker.interface.id_for_network_name(@prefixed_name)
       end
 
       def clean
-        Interface.remove_network(id) if exists?
+        Docker.interface.remove_network(id) if exists?
       end
 
       def id
-        @id ||= Interface.id_for_network_name(@prefixed_name)
+        @id ||= Docker.interface.id_for_network_name(@prefixed_name)
       end
     end
   end
