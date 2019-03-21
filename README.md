@@ -17,7 +17,7 @@ Install with
 
 ## Caveats
 
-This is an early alpha version. Use at your own risk.
+*This is an early alpha version. Use at your own risk.*
 
 Only the parsing of `.gitlab-ci.yml` is currently supported, and only a subset of the possible syntax
 will be properly interpreted.
