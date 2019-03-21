@@ -10,17 +10,15 @@ Gem::Specification.new do |spec|
   spec.email         = ["tobias.kraze@makandra.de"]
 
   spec.summary       = "Spin up CI environments locally."
-  spec.homepage      = "http://example.org/TODO"
+  spec.homepage      = "https://github.com/makandra/rascal"
   spec.license       = "MIT"
 
   # Prevent pushing this gem to RubyGems.org. To allow pushes either set the 'allowed_push_host'
   # to allow pushing to a single host or delete this section to allow pushing to any host.
   if spec.respond_to?(:metadata)
-    spec.metadata["allowed_push_host"] = "TODO: Set to 'http://mygemserver.com'"
-
     spec.metadata["homepage_uri"] = spec.homepage
-    spec.metadata["source_code_uri"] = "http://example.org/TODO"
-    spec.metadata["changelog_uri"] = "http://example.org/TODO"
+    spec.metadata["source_code_uri"] = "https://github.com/makandra/rascal"
+    spec.metadata["changelog_uri"] = "https://github.com/makandra/rascal/blob/master/CHANGELOG.md"
   else
     raise "RubyGems 2.0 or newer is required to protect against " \
       "public gem pushes."
