@@ -42,6 +42,8 @@ class DockerMockInterface < Rascal::Docker::Interface
       @images[$1].to_json
     when /pull (\S*)/
       "[Docker mock] Pulling #{$1}"
+    when /network ls.*name=\^(.*)\$/
+      "deadbeef"
     end
   end
 

@@ -7,19 +7,35 @@ module Rascal
       end
 
       def create
-        Docker.interface.create_network(@prefixed_name)
+        Docker.interface.run(
+          'network',
+          'create',
+          @prefixed_name,
+        )
       end
 
       def exists?
-        !!Docker.interface.id_for_network_name(@prefixed_name)
+        !!id
       end
 
       def clean
-        Docker.interface.remove_network(id) if exists?
+        if exists?
+          Docker.interface.run(
+            'network',
+            'rm',
+            id,
+          )
+        end
       end
 
       def id
-        @id ||= Docker.interface.id_for_network_name(@prefixed_name)
+        @id ||= Docker.interface.run(
+          'network',
+          'ls',
+          '--quiet',
+          '--filter', "name=^#{@prefixed_name}$",
+          output: :id,
+        )
       end
     end
   end

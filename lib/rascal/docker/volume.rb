@@ -15,7 +15,11 @@ module Rascal
         end
 
         def clean
-          Docker.interface.remove_volume(@prefixed_name)
+          Docker.interface.run(
+            'volume',
+            'rm',
+            @prefixed_name,
+          )
         end
       end
 

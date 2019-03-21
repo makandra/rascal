@@ -61,8 +61,8 @@ Feature: Run "shell"
       """
 
     When I successfully run `rascal shell job`
-    Then docker `container create --name rascal-job_service-1 --network-alias service-1 service-1-image:latest` should have been called
-      And docker `container create --name rascal-job_service-2 --network-alias service-2 service-2-image:stable` should have been called
+    Then docker `container create --name rascal-job_service-1 --network deadbeef --network-alias service-1 service-1-image:latest` should have been called
+      And docker `container create --name rascal-job_service-2 --network deadbeef --network-alias service-2 service-2-image:stable` should have been called
       And stdout should contain:
         """
         Starting container for job_service-1
@@ -81,4 +81,4 @@ Feature: Run "shell"
       """
 
     When I successfully run `rascal shell job`
-    Then docker /container run --rm -a STDOUT -a STDERR -a STDIN --interactive --tty -w /repo -v .*/repo job-image:latest bash/ should have been called
+    Then docker /container run --rm -a STDOUT -a STDERR -a STDIN --interactive --tty -w /repo -v .*/repo --network deadbeef job-image:latest bash/ should have been called
