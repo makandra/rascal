@@ -61,14 +61,26 @@ module Rascal
       end
 
       def run_and_attach(*command, env: {}, network: nil, volumes: [], working_dir: nil, allow_failure: false)
-        Docker.interface.run_and_attach(@image, *command,
-          env: env,
-          stdout: stdout,
-          stderr: stderr,
-          stdin: stdin,
-          network: network&.id,
-          volumes: volumes,
-          working_dir: working_dir,
+        Docker.interface.run_and_attach(
+          'container',
+          'run',
+          '--rm',
+          '-a', 'STDOUT',
+          '-a', 'STDERR',
+          '-a', 'STDIN',
+          '--interactive',
+          '--tty',
+          *(['-w', working_dir] if working_dir),
+          *(volumes.flat_map { |v| ['-v', v.to_param] }),
+          *(env.flat_map { |key, value| ['-e', "#{key}=#{value}"] }),
+          *(['--network', network.id] if network),
+          @image,
+          *command,
+          redirect_io: {
+            out: stdout,
+            err: stderr,
+            in: stdin,
+          },
           allow_failure: allow_failure
         )
       end

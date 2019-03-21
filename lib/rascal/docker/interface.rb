@@ -6,7 +6,7 @@ module Rascal
     class Interface
       class Error < Rascal::Error; end
 
-      def run(*command, output: :ignore, stdout: nil, redirect_io: {}, allow_failure: false)
+      def run(*command, output: :ignore, stdout: nil, allow_failure: false)
         save_stdout = ''
         save_stderr = ''
         exit_status = nil
@@ -22,60 +22,11 @@ module Rascal
         unless allow_failure || exit_status.success?
           raise Error, "docker command '#{command.join(' ')}' failed with error:\n#{save_stderr}"
         end
-        case output
-        when :json
-          begin
-            JSON.parse(save_stdout)
-          rescue JSON::ParserError
-            raise Error, "could not parse output of docker command '#{command.join(' ')}':\n#{save_stdout}"
-          end
-        when :id
-          save_stdout[/[0-9a-f]+/]
-        when :ignore
-          nil
-        else
-          raise ArgumentError, 'unknown option for :output'
-        end
+        parse_output(output, save_stdout, save_stderr)
       end
 
-      def run_and_attach(image, *command, stdout: nil, stderr: nil, stdin: nil, env: {}, network: nil, volumes: [], working_dir: nil, allow_failure: false)
-        process_redirections = {}
-        args = []
-        if stdout
-          process_redirections[:out] = stdout
-          args += ['-a', 'STDOUT']
-        end
-        if stderr
-          process_redirections[:err] = stderr
-          args += ['-a', 'STDERR']
-        end
-        if stdin
-          process_redirections[:in] = stdin
-          args += ['-a', 'STDIN', '--interactive', '--tty']
-        end
-        if working_dir
-          args += ['-w', working_dir.to_s]
-        end
-        volumes.each do |volume|
-          args += ['-v', volume.to_param]
-        end
-        env.each do |key, value|
-          args += ['-e', "#{key}=#{value}"]
-        end
-        if network
-          args += ['--network', network.to_s]
-        end
-        exit_status = spawn(
-          env,
-          'docker',
-          'container',
-          'run',
-          '--rm',
-          *args,
-          image.to_s,
-          *stringify_command(command),
-          process_redirections,
-        )
+      def run_and_attach(*command, stdout: nil, stderr: nil, stdin: nil, env: {}, network: nil, volumes: [], working_dir: nil, redirect_io: {}, allow_failure: false)
+        exit_status = spawn(env, 'docker', *stringify_command(command), redirect_io)
         unless allow_failure || exit_status.success?
           raise Error, "docker container run failed"
         end
@@ -104,6 +55,23 @@ module Rascal
             save_to << l
           end
         rescue IOError
+        end
+      end
+
+      def parse_output(output, stdout, stderr)
+        case output
+        when :json
+          begin
+            JSON.parse(stdout)
+          rescue JSON::ParserError
+            raise Error, "could not parse output of docker command '#{command.join(' ')}':\n#{stdout}"
+          end
+        when :id
+          stdout[/[0-9a-f]+/]
+        when :ignore
+          nil
+        else
+          raise ArgumentError, 'unknown option for :output'
         end
       end
     end
