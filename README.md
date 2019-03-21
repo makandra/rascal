@@ -1,30 +1,77 @@
 # Rascal
 ### Use CI environments locally. Not quite a vagrant.
 
+We use Gitlab-CI to run CI for our projects, using Docker containers.
+
+In certain situations, it can be helpful to set up an environment identical to a CI
+node on your local machine. `rascal` allows you to do just that by parsing your CI config
+(currently only `.gitlab-ci.yml`), starting required services and bringing up a Docker
+container.
+
 ## Installation
 
 Install with
 
     $ gem install rascal
 
+
+## Caveats
+
+This is an early alpha version. Use at your own risk.
+
+Only the parsing of `.gitlab-ci.yml` is currently supported, and only a subset of the possible syntax
+will be properly interpreted.
+
+
 ## Usage
 
-TODO: Write usage instructions here
+You need to add some extra information to your `.gitlab-ci.yml`. A working version might look like this:
 
-## Development
+```
+# settings here override job settings
+.rascal:
+  repo_dir: /repo
+  variables:
+    BUNDLE_PATH: /cache/bundle
+  volumes:
+    cache: /cache
+  before_shell:
+    - bundle check
 
-After checking out the repo, run `bin/setup` to install dependencies. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
+.environment: &environment
+  image: registry.makandra.de/makandra/ci-images/test-env:2.5
+  services:
+    - name: registry.makandra.de/makandra/ci-images/pg:9.5
+      alias: pg-db
+    - name: registry.makandra.de/makandra/ci-images/redis:4
+      alias: redis
+  before_script:
+    - ruby -v
+    - bundle install
+    - bundle exec rake db:create db:schema:load
+  variables:
+    BUNDLE_PATH: ./bundle/vendor
+    DATABASE_URL: postgresql://pg_user@pg-db/test-db
+    DATABASE_CLEANER_ALLOW_REMOTE_DATABASE_URL: "true"
+    REDIS_URL: redis://redis
+    PROMPT: CI env
+  cache:
+    paths:
+      - ./bundle/vendor
 
-To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the version number in `version.rb`, and then run `bundle exec rake release`, which will create a git tag for the version, push git commits and tags, and push the `.gem` file to [rubygems.org](https://rubygems.org).
 
-## Contributing
+# ============= Actual jobs ================
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/[USERNAME]/rascal. This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to the [Contributor Covenant](http://contributor-covenant.org) code of conduct.
+rspec:
+  <<: *environment
+  script:
+    - bundle exec rake knapsack:rspec
+  parallel: 4
+```
+
+Then, in your project root, run `rascal shell rspec`.
+
 
 ## License
 
 The gem is available as open source under the terms of the [MIT License](https://opensource.org/licenses/MIT).
-
-## Code of Conduct
-
-Everyone interacting in the Rascal project’s codebases, issue trackers, chat rooms and mailing lists is expected to follow the [code of conduct](https://github.com/[USERNAME]/rascal/blob/master/CODE_OF_CONDUCT.md).
