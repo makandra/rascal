@@ -1,4 +1,5 @@
-# Rascal
+# Rascal [![Build Status](https://travis-ci.org/makandra/rascal.svg?branch=master)](https://travis-ci.org/makandra/rascal)
+
 ### Use CI environments locally. Not quite a vagrant.
 
 We use Gitlab-CI to run CI for our projects, using Docker containers.
