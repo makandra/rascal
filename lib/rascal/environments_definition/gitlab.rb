@@ -58,7 +58,7 @@ module Rascal
         @environments ||= begin
           @info.collect do |key, environment_config|
             config = Config.new(deep_merge(environment_config, @rascal_config), key)
-            docker_repo_dir = config.get('repo_dir')
+            docker_repo_dir = config.get('repo_dir', '/repo')
             unless key.start_with?('.')
               Environment.new(key,
                 image: config.get('image'),
