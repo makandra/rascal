@@ -35,6 +35,7 @@ module Rascal
       end
 
       desc 'clean ENVIRONMENT', 'Stop and remove docker containers for the given environment'
+      method_option :cache, type: :boolean, default: false
       def clean(environment_name = nil)
         Clean.new(self, options, environment_name).run
       end

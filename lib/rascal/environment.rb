@@ -26,10 +26,10 @@ module Rascal
       )
     end
 
-    def clean
+    def clean(clean_volumes: false)
       @services.each(&:clean)
       @network.clean
-      @volumes.each(&:clean)
+      @volumes.each(&:clean) if clean_volumes
     end
 
     private

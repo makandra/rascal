@@ -9,7 +9,7 @@ module Rascal
       end
 
       def run
-        find_environment(@environment_name)&.clean
+        find_environment(@environment_name)&.clean(clean_volumes: @options[:cache])
       end
     end
   end
