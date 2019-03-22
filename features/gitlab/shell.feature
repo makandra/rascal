@@ -81,4 +81,4 @@ Feature: Run "shell"
       """
 
     When I successfully run `rascal shell job`
-    Then docker /container run --rm -a STDOUT -a STDERR -a STDIN --interactive --tty -w /repo -v .*/repo --network deadbeef job-image:latest bash/ should have been called
+    Then docker /container run --rm -a STDOUT -a STDERR -a STDIN --interactive --tty -w /repo -v .*/repo -v rascal-job-builds:/builds --network deadbeef job-image:latest bash/ should have been called

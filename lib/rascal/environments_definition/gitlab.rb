@@ -64,7 +64,11 @@ module Rascal
                 image: config.get('image'),
                 env_variables: (config.get('variables', {})),
                 services: build_services(key, config.get('services', [])),
-                volumes: [build_repo_volume(docker_repo_dir), *build_volumes(key, config.get('volumes', {}))],
+                volumes: [
+                  build_repo_volume(docker_repo_dir),
+                  build_builds_volume(key),
+                  *build_volumes(key, config.get('volumes', {}))
+                ],
                 before_shell: config.get('before_shell', []),
                 working_dir: docker_repo_dir,
               )
@@ -104,6 +108,10 @@ module Rascal
 
       def build_repo_volume(docker_repo_dir)
         Docker::Volume::Bind.new(@repo_dir, docker_repo_dir)
+      end
+
+      def build_builds_volume(name)
+        Docker::Volume::Named.new("#{name}-builds", '/builds')
       end
 
       def build_volumes(name, volume_config)
