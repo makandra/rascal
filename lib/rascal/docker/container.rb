@@ -40,9 +40,9 @@ module Rascal
         !!id
       end
 
-      def start(network: nil, network_alias: nil)
+      def start(network: nil, network_alias: nil, volumes: [])
         say "Starting container for #{@name}"
-        create(network: network, network_alias: network_alias) unless exists?
+        create(network: network, network_alias: network_alias, volumes: volumes) unless exists?
         Docker.interface.run(
           'container',
           'start',
@@ -50,11 +50,12 @@ module Rascal
         )
       end
 
-      def create(network: nil, network_alias: nil)
+      def create(network: nil, network_alias: nil, volumes: [])
         @id = Docker.interface.run(
           'container',
           'create',
           '--name', @prefixed_name,
+          *(volumes.flat_map { |v| ['-v', v.to_param] }),
           *(['--network', network.id] if network),
           *(['--network-alias', network_alias] if network_alias),
           @image,

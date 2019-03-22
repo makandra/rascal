@@ -2,7 +2,7 @@ module Rascal
   class Environment
     attr_reader :name, :network, :container, :env_variables, :services, :volumes, :working_dir, :before_shell
 
-    def initialize(full_name, name:, image:, env_variables: {}, services: [], volumes: [], before_shell: [], working_dir: nil)
+    def initialize(full_name, name:, image:, env_variables: {}, services: [], volumes: [], before_shell: [], after_shell: [], working_dir: nil)
       @name = name
       @network = Docker::Network.new(full_name)
       @container = Docker::Container.new(full_name, image)
@@ -11,12 +11,13 @@ module Rascal
       @volumes = volumes
       @working_dir = working_dir
       @before_shell = before_shell
+      @after_shell = after_shell
     end
 
     def run_shell
       download_missing
       start_services
-      command = [*@before_shell, 'bash'].join(';')
+      command = [*@before_shell, 'bash', *@after_shell].join(';')
       @container.run_and_attach('bash', '-c', command,
         env: @env_variables,
         network: @network,
