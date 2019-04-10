@@ -3,7 +3,7 @@ module Rascal
     describe Gitlab do
 
       def from_config(yaml, name)
-        config_path = double(read: yaml, parent: '/path/to/repo')
+        config_path = double(read: yaml, parent: double(to_s: '/path/to/repo', basename: 'repo'))
         described_class.new(config_path).environment(name)
       end
 
@@ -61,7 +61,7 @@ module Rascal
           expect(environment.volumes.size).to eq 2
           expect(environment.volumes.collect(&:to_param)).to match_array [
             '/path/to/repo:/repo',
-            'rascal-job-builds:/builds'
+            'rascal-repo-job-builds:/builds'
           ]
         end
 
@@ -107,7 +107,7 @@ module Rascal
       describe '#available_environment_names' do
 
         it 'returns valid jobs' do
-          config_path = double(read: <<~YAML, parent: '/path/to/repo')
+          config_path = double(read: <<~YAML, parent: double(to_s: '/path/to/repo', basename: 'repo'))
             .rascal:
               variables:
                 rascal-variable: bar

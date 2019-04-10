@@ -15,11 +15,11 @@ Feature: Run "shell"
     When I successfully run `rascal shell job`
     Then stdout should contain:
       """
-      Downloading image for job
+      Downloading image for aruba-job
       [Docker mock] Pulling job-image:latest
-      Downloading image for job_service-1
+      Downloading image for aruba-job_service-1
       [Docker mock] Pulling service-1-image:latest
-      Downloading image for job_service-2
+      Downloading image for aruba-job_service-2
       [Docker mock] Pulling service-2-image:stable
       """
     Then docker `pull job-image:latest` should have been called
@@ -52,12 +52,12 @@ Feature: Run "shell"
       """
 
     When I successfully run `rascal shell job`
-    Then docker `container create --name rascal-job_service-1 --network deadbeef --network-alias service-1 service-1-image:latest` should have been called
-      And docker `container create --name rascal-job_service-2 --network deadbeef --network-alias service-2 service-2-image:stable` should have been called
+    Then docker `container create --name rascal-aruba-job_service-1 --network deadbeef --network-alias service-1 service-1-image:latest` should have been called
+      And docker `container create --name rascal-aruba-job_service-2 --network deadbeef --network-alias service-2 service-2-image:stable` should have been called
       And stdout should contain:
         """
-        Starting container for job_service-1
-        Starting container for job_service-2
+        Starting container for aruba-job_service-1
+        Starting container for aruba-job_service-2
         """
 
 
@@ -69,4 +69,4 @@ Feature: Run "shell"
       """
 
     When I successfully run `rascal shell job`
-    Then docker /container run --rm -a STDOUT -a STDERR -a STDIN --interactive --tty -w /repo -v .*/repo -v rascal-job-builds:/builds --network deadbeef job-image:latest bash/ should have been called
+    Then docker /container run --rm -a STDOUT -a STDERR -a STDIN --interactive --tty -w /repo -v .*/repo -v rascal-aruba-job-builds:/builds --network deadbeef job-image:latest bash/ should have been called

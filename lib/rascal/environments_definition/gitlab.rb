@@ -35,6 +35,7 @@ module Rascal
       def initialize(config_path)
         @info = parse_definition(config_path.read)
         @repo_dir = config_path.parent
+        @base_name = @repo_dir.basename
         @rascal_config = @info.fetch('.rascal', {})
         @rascal_environment_config = @rascal_config.delete('jobs') || {}
       end
@@ -64,15 +65,18 @@ module Rascal
           @info.collect do |key, environment_config|
             config = Config.new(deep_merge(environment_config, @rascal_config, @rascal_environment_config[key] || {}), key)
             docker_repo_dir = config.get('repo_dir', '/repo')
-            unless key.start_with?('.')
-              Environment.new(key,
+            unless key.start_with?('.') || config.get('hide', false)
+              name = config.get('name', key)
+              full_name = "#{@base_name}-#{name}"
+              Environment.new(full_name,
+                name: name,
                 image: config.get('image'),
                 env_variables: (config.get('variables', {})),
-                services: build_services(key, config.get('services', [])),
+                services: build_services(full_name, config.get('services', [])),
                 volumes: [
                   build_repo_volume(docker_repo_dir),
-                  build_builds_volume(key),
-                  *build_volumes(key, config.get('volumes', {}))
+                  build_builds_volume(full_name),
+                  *build_volumes(full_name, config.get('volumes', {}))
                 ],
                 before_shell: config.get('before_shell', []),
                 working_dir: docker_repo_dir,

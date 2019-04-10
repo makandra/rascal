@@ -28,12 +28,12 @@ Feature: Clean
             alias: service-2
       """
 
-    Given the container "rascal-job_service-1" exists
-      And the container "rascal-job_service-2" exists
+    Given the container "rascal-aruba-job_service-1" exists
+      And the container "rascal-aruba-job_service-2" exists
     When I successfully run `rascal clean job`
     Then stdout should not contain "Stopping"
-      But stdout should contain "Removing container for job_service-1"
-      And stdout should contain "Removing container for job_service-2"
+      But stdout should contain "Removing container for aruba-job_service-1"
+      And stdout should contain "Removing container for aruba-job_service-2"
       And docker /container rm/ should have been called
       And docker /network rm/ should have been called
 
@@ -48,11 +48,11 @@ Feature: Clean
             alias: service-1
       """
 
-    Given the container "rascal-job_service-1" is running
-      And the container "rascal-job_service-2" is running
+    Given the container "rascal-aruba-job_service-1" is running
+      And the container "rascal-aruba-job_service-2" is running
     When I successfully run `rascal clean job`
-    Then stdout should contain "Stopping container for job_service-1"
-      And stdout should contain "Removing container for job_service-1"
+    Then stdout should contain "Stopping container for aruba-job_service-1"
+      And stdout should contain "Removing container for aruba-job_service-1"
       And docker /container stop/ should have been called
 
 
@@ -71,11 +71,11 @@ Feature: Clean
             alias: service
       """
 
-    Given the container "rascal-job-1_service" exists
-      And the container "rascal-job-2_service" exists
+    Given the container "rascal-aruba-job-1_service" exists
+      And the container "rascal-aruba-job-2_service" exists
     When I successfully run `rascal clean --all`
-    Then stdout should contain "Removing container for job-1_service"
-      And stdout should contain "Removing container for job-2_service"
+    Then stdout should contain "Removing container for aruba-job-1_service"
+      And stdout should contain "Removing container for aruba-job-2_service"
 
 
   Scenario: Clean volumes
@@ -89,9 +89,9 @@ Feature: Clean
         image: job-image:latest
       """
 
-    Given the volume "rascal-job-cache" exists
-      And the volume "rascal-job-foo" exists
+    Given the volume "rascal-aruba-job-cache" exists
+      And the volume "rascal-aruba-job-foo" exists
     When I successfully run `rascal clean job --volumes`
-    Then stdout should contain "Removing volume rascal-job-cache"
-      And stdout should contain "Removing volume rascal-job-foo"
-      And docker `volume rm rascal-job-cache` should have been called
+    Then stdout should contain "Removing volume rascal-aruba-job-cache"
+      And stdout should contain "Removing volume rascal-aruba-job-foo"
+      And docker `volume rm rascal-aruba-job-cache` should have been called

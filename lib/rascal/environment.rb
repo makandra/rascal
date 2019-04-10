@@ -2,10 +2,10 @@ module Rascal
   class Environment
     attr_reader :name, :network, :container, :env_variables, :services, :volumes, :working_dir, :before_shell
 
-    def initialize(name, image:, env_variables: {}, services: [], volumes: [], before_shell: [], working_dir: nil)
+    def initialize(full_name, name:, image:, env_variables: {}, services: [], volumes: [], before_shell: [], working_dir: nil)
       @name = name
-      @network = Docker::Network.new(name)
-      @container = Docker::Container.new(name, image)
+      @network = Docker::Network.new(full_name)
+      @container = Docker::Container.new(full_name, image)
       @env_variables = env_variables
       @services = services
       @volumes = volumes
