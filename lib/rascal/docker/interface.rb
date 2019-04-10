@@ -22,7 +22,7 @@ module Rascal
         unless allow_failure || exit_status.success?
           raise Error, "docker command '#{command.join(' ')}' failed with error:\n#{save_stderr}"
         end
-        parse_output(output, save_stdout, save_stderr)
+        parse_output(output, save_stdout, save_stderr, command: command.join(' '))
       end
 
       def run_and_attach(*command, stdout: nil, stderr: nil, stdin: nil, env: {}, network: nil, volumes: [], working_dir: nil, redirect_io: {}, allow_failure: false)
@@ -58,13 +58,13 @@ module Rascal
         end
       end
 
-      def parse_output(output, stdout, stderr)
+      def parse_output(output, stdout, stderr, command:)
         case output
         when :json
           begin
             JSON.parse(stdout)
           rescue JSON::ParserError
-            raise Error, "could not parse output of docker command '#{command.join(' ')}':\n#{stdout}"
+            raise Error, "could not parse output of docker command '#{command}':\n#{stdout}"
           end
         when :id
           stdout[/[0-9a-f]+/]

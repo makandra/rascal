@@ -2,7 +2,7 @@ require 'rascal'
 
 module Rascal
   module CLI
-    class Clean < Base
+    class Update < Base
       def initialize(thor, options, environment_name)
         @environment_name = if options[:all]
           fail_with_error('Cannot give --all and an environment name!') if environment_name
@@ -14,8 +14,9 @@ module Rascal
       end
 
       def run
+        images = []
         each_environment(@environment_name) do |environment|
-          environment.clean(clean_volumes: @options[:volumes])
+          images += environment.update(skip: images)
         end
       end
     end

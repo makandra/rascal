@@ -1,6 +1,6 @@
 module Rascal
   class Environment
-    attr_reader :name
+    attr_reader :name, :network, :container, :env_variables, :services, :volumes, :working_dir, :before_shell
 
     def initialize(name, image:, env_variables: {}, services: [], volumes: [], before_shell: [], working_dir: nil)
       @name = name
@@ -30,6 +30,13 @@ module Rascal
       @services.each(&:clean)
       @network.clean
       @volumes.each(&:clean) if clean_volumes
+    end
+
+    def update(skip: [])
+      [
+        *@services.collect { |s| s.update(skip: skip) },
+        *@container.update(skip: skip),
+      ]
     end
 
     private

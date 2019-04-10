@@ -1,6 +1,6 @@
 module Rascal
   class Service
-    attr_reader :name
+    attr_reader :name, :container, :alias
 
     def initialize(name, image:, alias_name:)
       @name = name
@@ -20,6 +20,10 @@ module Rascal
 
     def clean
       @container.clean
+    end
+
+    def update(**args)
+      @container.update(**args)
     end
   end
 end

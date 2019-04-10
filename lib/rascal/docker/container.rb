@@ -3,6 +3,8 @@ module Rascal
     class Container
       include IOHelper
 
+      attr_reader :image
+
       def initialize(name, image)
         @name = name
         @prefixed_name = "#{NAME_PREFIX}#{name}"
@@ -86,8 +88,25 @@ module Rascal
       end
 
       def clean
-        stop_container if running?
-        remove_container if exists?
+        if running?
+          say "Stopping container for #{@name}"
+          stop_container
+        end
+        if exists?
+          say "Removing container for #{@name}"
+          remove_container
+        end
+      end
+
+      def update(skip: [])
+        return if skip.include?(@image)
+        say "Updating image #{@image}"
+        Docker.interface.run(
+          'pull',
+          @image,
+          stdout: stdout,
+        )
+        @image
       end
 
       private

@@ -1,11 +1,15 @@
+require 'digest/sha1'
+
 class DockerMockInterface < Rascal::Docker::Interface
   include RSpec::Mocks::ExampleMethods
 
-  attr_reader :history, :images
+  attr_reader :history, :images, :containers, :volumes
 
   def initialize(*)
     @history = []
-    @images = Hash.new { |h, k| h[k] = [] }
+    @images = Hash.new { |h, k| h[k] = {} }
+    @containers = Hash.new { |h, k| h[k] = {} }
+    @volumes = Hash.new { |h, k| h[k] = {} }
     super
   end
 
@@ -28,10 +32,11 @@ class DockerMockInterface < Rascal::Docker::Interface
     thread = Thread.new do
       sleep 0.01
       stdin_reader.close
-      stdout_writer.puts(output_for(*command))
+      output = output_for(*command)
+      stdout_writer.puts(output)
       stdout_writer.close
       stderr_writer.close
-      exit_status
+      exit_status(output != :fail)
     end
     block.call(stdin_writer, stdout_reader, stderr_reader, thread)
   end
@@ -44,11 +49,22 @@ class DockerMockInterface < Rascal::Docker::Interface
       "[Docker mock] Pulling #{$1}"
     when /network ls.*name=\^(.*)\$/
       "deadbeef"
+    when /volume ls.*name=\^(.*)\$/
+      @volumes[$1][:id]
+    when /container ps.*name=\^\/(.*)\$/
+      @containers[$1][:id]
+    when /container inspect (.*)/
+      container = @containers.values.detect { |c| c[:id] == $1 }
+      if container
+        [container].to_json
+      else
+        :fail
+      end
     end
   end
 
-  def exit_status
-    instance_double(Process::Status, success?: true)
+  def exit_status(success = true)
+    instance_double(Process::Status, success?: success)
   end
 end
 
@@ -74,5 +90,17 @@ end
 
 
 Given("the docker image {string} exists") do |name|
-  Rascal::Docker.interface.images[name] = { id: "id-#{name}" }
+  Rascal::Docker.interface.images[name] = { id: Digest::SHA1.hexdigest("image-#{name}") }
+end
+
+Given("the container {string} exists") do |name|
+  Rascal::Docker.interface.containers[name] = { id: Digest::SHA1.hexdigest("container-#{name}") }
+end
+
+Given("the container {string} is running") do |name|
+  Rascal::Docker.interface.containers[name] = { id: Digest::SHA1.hexdigest("container-#{name}"), State: { Running: true } }
+end
+
+Given("the volume {string} exists") do |name|
+  Rascal::Docker.interface.volumes[name] = { id: Digest::SHA1.hexdigest("volume-#{name}") }
 end

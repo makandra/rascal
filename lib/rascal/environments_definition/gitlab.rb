@@ -36,6 +36,7 @@ module Rascal
         @info = parse_definition(config_path.read)
         @repo_dir = config_path.parent
         @rascal_config = @info.fetch('.rascal', {})
+        @rascal_environment_config = @rascal_config.delete('jobs') || {}
       end
 
       def environment(name)
@@ -51,13 +52,17 @@ module Rascal
       private
 
       def parse_definition(yaml)
-        YAML.safe_load(yaml, [], [], true)
+        if Psych::VERSION >= '3.1'
+          YAML.safe_load(yaml, aliases: true)
+        else
+          YAML.safe_load(yaml, [], [], true)
+        end
       end
 
       def environments
         @environments ||= begin
           @info.collect do |key, environment_config|
-            config = Config.new(deep_merge(environment_config, @rascal_config), key)
+            config = Config.new(deep_merge(environment_config, @rascal_config, @rascal_environment_config[key] || {}), key)
             docker_repo_dir = config.get('repo_dir', '/repo')
             unless key.start_with?('.')
               Environment.new(key,
@@ -77,9 +82,9 @@ module Rascal
         end
       end
 
-      def deep_merge(hash1, hash2)
+      def deep_merge(hash1, hash2, *other)
+        result = {}
         if hash1.is_a?(Hash) && hash2.is_a?(Hash)
-          result = {}
           hash1.each do |key1, value1|
             if hash2.has_key?(key1)
               result[key1] = deep_merge(value1, hash2[key1])
@@ -90,9 +95,13 @@ module Rascal
           hash2.each do |key2, value2|
             result[key2] ||= value2
           end
-          result
         else
-          hash2
+          result = hash2
+        end
+        if other.any?
+          deep_merge(result, *other)
+        else
+          result
         end
       end
 

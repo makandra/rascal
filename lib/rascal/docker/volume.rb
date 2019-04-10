@@ -2,6 +2,7 @@ module Rascal
   module Docker
     module Volume
       class Base
+        include IOHelper
       end
 
       class Named < Base
@@ -15,10 +16,23 @@ module Rascal
         end
 
         def clean
+          if exists?
+            say "Removing volume #{@prefixed_name}"
+            Docker.interface.run(
+              'volume',
+              'rm',
+              @prefixed_name,
+            )
+          end
+        end
+
+        def exists?
           Docker.interface.run(
             'volume',
-            'rm',
-            @prefixed_name,
+            'ls',
+            '--quiet',
+            '--filter', "name=^#{@prefixed_name}$",
+            output: :id,
           )
         end
       end
