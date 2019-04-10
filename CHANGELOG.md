@@ -5,6 +5,11 @@ All notable changes to this project will be documented here.
 Rascal follows semantic versioning. This has little consequence pre 1.0, so expect breaking changes.
 
 
+## 0.2.1 (2019-04-10)
+
+- Prefix names with directory name, to avoid conflicts between projects.
+
+
 ## 0.2.0 (2019-04-10)
 
 - Add `--all` flag for `rascal clean`.
