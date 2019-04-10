@@ -30,14 +30,18 @@ You need to add some extra information to your `.gitlab-ci.yml`. A working versi
 
 ```
 # settings here override job settings
-.rascal:
-  repo_dir: /repo
-  variables:
+.rascal:                                 # add rascal specific config here
+  repo_dir: /repo                        # /repo is the default
+  variables:                             # extra env variables
     BUNDLE_PATH: /cache/bundle
-  volumes:
-    cache: /cache
+  volumes:                               # mount these volumes
+    cache: /cache                        # we will always mount a /builds volume
   before_shell:
-    - bundle check
+    - bundle check                       # run this when starting a shell
+  jobs:
+    rspec:                               # override settings for a specific job
+      variables:
+        BUNDLE_GEMFILE = /repo/Gemfile
 
 .environment: &environment
   image: registry.makandra.de/makandra/ci-images/test-env:2.5
@@ -53,7 +57,6 @@ You need to add some extra information to your `.gitlab-ci.yml`. A working versi
   variables:
     BUNDLE_PATH: ./bundle/vendor
     DATABASE_URL: postgresql://pg_user@pg-db/test-db
-    DATABASE_CLEANER_ALLOW_REMOTE_DATABASE_URL: "true"
     REDIS_URL: redis://redis
     PROMPT: CI env
   cache:
@@ -71,6 +74,27 @@ rspec:
 ```
 
 Then, in your project root, run `rascal shell rspec`.
+
+
+### Commands
+
+#### rascal shell <job>
+
+Start a docker container (plus required services) and open an interactive shell.
+
+Currently requires a "bash" to exist.
+
+
+#### rascal clean <job> | --all [--volumes]
+
+Stop and remove all created containers, services, networks for either the given or all jobs.
+
+If `--volumes` is given, also remove all cached volumes.
+
+
+#### rascal update <job> | --all
+
+Update all images for the given job, or all jobs.
 
 
 ## License
