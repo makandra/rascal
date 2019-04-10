@@ -3,9 +3,6 @@ Feature: Run "shell"
   Scenario: Download main and service images
     Given the following gitlab-ci config:
       """
-      .rascal:
-        repo_dir: /repo
-
       job:
         image: job-image:latest
         services:
@@ -33,9 +30,6 @@ Feature: Run "shell"
   Scenario: Do not download existing images
     Given the following gitlab-ci config:
       """
-      .rascal:
-        repo_dir: /repo
-
       job:
         image: job-image:latest
       """
@@ -48,9 +42,6 @@ Feature: Run "shell"
   Scenario: Start services if not running
     Given the following gitlab-ci config:
       """
-      .rascal:
-        repo_dir: /repo
-
       job:
         image: job-image:latest
         services:
@@ -73,9 +64,6 @@ Feature: Run "shell"
   Scenario: Run main container
     Given the following gitlab-ci config:
       """
-      .rascal:
-        repo_dir: /repo
-
       job:
         image: job-image:latest
       """
