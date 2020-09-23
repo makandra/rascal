@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    rascal (0.2.1)
+    rascal (0.3.0)
       thor (~> 0.20.3)
 
 GEM
@@ -107,4 +107,4 @@ DEPENDENCIES
   rspec
 
 BUNDLED WITH
-   2.0.1
+   2.1.4
