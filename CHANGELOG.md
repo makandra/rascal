@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 Rascal follows semantic versioning. This has little consequence pre 1.0, so expect breaking changes.
 
+## 0.3.1 (2020-10-01)
+
+- Pass env variables to service containers.
+
+
 ## 0.3.0 (2020-09-23)
 
 - Mount /repo into all service volumes
