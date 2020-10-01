@@ -69,15 +69,16 @@ module Rascal
               name = config.get('name', key)
               full_name = "#{@base_name}-#{name}"
               shared_volumes = [build_repo_volume(docker_repo_dir), build_builds_volume(full_name)]
+              env_variables = (config.get('variables', {}))
               Environment.new(full_name,
                 name: name,
                 image: config.get('image'),
-                env_variables: (config.get('variables', {})),
                 volumes: [
                   *shared_volumes,
                   *build_volumes(full_name, config.get('volumes', {}))
                 ],
-                services: build_services(full_name, config.get('services', []), volumes: shared_volumes),
+                env_variables: env_variables,
+                services: build_services(full_name, config.get('services', []), volumes: shared_volumes, env_variables: env_variables),
                 before_shell: config.get('before_shell', []),
                 after_shell: config.get('after_shell', []),
                 working_dir: docker_repo_dir,
@@ -110,13 +111,14 @@ module Rascal
         end
       end
 
-      def build_services(name, services, volumes: [])
+      def build_services(name, services, volumes: [], env_variables: {})
         services.collect do |service_config|
           service_alias = service_config['alias']
           Service.new("#{name}_#{service_alias}",
             alias_name: service_config['alias'],
             image: service_config['name'],
             volumes: volumes,
+            env_variables: env_variables,
           )
         end
       end

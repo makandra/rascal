@@ -10,6 +10,7 @@ class DockerMockInterface < Rascal::Docker::Interface
     @images = Hash.new { |h, k| h[k] = {} }
     @containers = Hash.new { |h, k| h[k] = {} }
     @volumes = Hash.new { |h, k| h[k] = {} }
+    @counter = 0
     super
   end
 
@@ -53,6 +54,10 @@ class DockerMockInterface < Rascal::Docker::Interface
       @volumes[$1][:id]
     when /container ps.*name=\^\/(.*)\$/
       @containers[$1][:id]
+    when /container create --name (\S*)/
+      new_id = "%08x" % (@counter += 1)
+      @containers[$1] = { id: new_id }
+      new_id
     when /container inspect (.*)/
       container = @containers.values.detect { |c| c[:id] == $1 }
       if container
