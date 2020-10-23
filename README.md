@@ -1,4 +1,4 @@
-# Rascal [![Build Status](https://travis-ci.org/makandra/rascal.svg?branch=master)](https://travis-ci.org/makandra/rascal)
+# Rascal [![Tests](https://github.com/makandra/rascal/workflows/Tests/badge.svg)](https://github.com/makandra/rascal/actions)
 
 ### Use CI environments locally. Not quite a vagrant.
 
