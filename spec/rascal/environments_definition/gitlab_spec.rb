@@ -29,12 +29,14 @@ module Rascal
               services:
               - name: service-1-image
                 alias: service-1
+                command: bin/start
           YAML
 
           expect(environment.services.size).to eq 1
           service = environment.services.first
           expect(service.container.image).to eq 'service-1-image'
           expect(service.alias).to eq 'service-1'
+          expect(service.command).to eq ['bin/start']
         end
 
         it 'sets env variables' do
