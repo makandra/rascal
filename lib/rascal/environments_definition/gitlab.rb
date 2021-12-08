@@ -119,6 +119,7 @@ module Rascal
             image: service_config['name'],
             volumes: volumes,
             env_variables: env_variables,
+            command: service_config['command'],
           )
         end
       end

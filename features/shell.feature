@@ -51,11 +51,12 @@ Feature: Run "shell"
             alias: service-1
           - name: service-2-image:stable
             alias: service-2
+            command: bin/start
       """
 
     When I successfully run `rascal shell job`
     Then docker /container create --name rascal-aruba-job_service-1 -v .*:/repo -v rascal-aruba-job-builds:/builds -e foo=bar --network deadbeef --network-alias service-1 service-1-image:latest/ should have been called
-      And docker /container create --name rascal-aruba-job_service-2 -v .*:/repo -v rascal-aruba-job-builds:/builds -e foo=bar --network deadbeef --network-alias service-2 service-2-image:stable/ should have been called
+      And docker /container create --name rascal-aruba-job_service-2 -v .*:/repo -v rascal-aruba-job-builds:/builds -e foo=bar --network deadbeef --network-alias service-2 service-2-image:stable bin\/start/ should have been called
       And docker /container start 00000001/ should have been called
       And docker /container start 00000002/ should have been called
       And stdout should contain:
