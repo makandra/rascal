@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 Rascal follows semantic versioning. This has little consequence pre 1.0, so expect breaking changes.
 
+## 0.3.4 (2022-03-16)
+
+- Activate Rubygems MFA
+
+
 ## 0.3.3 (2021-12-08)
 
 - Support `command` key in services.
