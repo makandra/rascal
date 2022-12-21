@@ -65,6 +65,26 @@ Feature: Run "shell"
         Starting container for aruba-job_service-2
         """
 
+  Scenario: Disconnect existing service containers from network
+    Given the following gitlab-ci config:
+      """
+      job:
+        variables:
+          foo: bar
+        image: job-image:latest
+        services:
+          - name: service-1-image:latest
+            alias: service-1
+      """
+      And the container "rascal-aruba-job_service-1" exists
+
+    When I successfully run `rascal shell job`
+    Then docker /network disconnect deadbeef 91801.*/ should have been called
+      And stdout should contain:
+        """
+        Starting container for aruba-job_service-1
+        """
+
 
   Scenario: Run main container
     Given the following gitlab-ci config:

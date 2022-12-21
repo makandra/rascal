@@ -14,6 +14,17 @@ module Rascal
         )
       end
 
+      def disconnect(container_id)
+        Docker.interface.run(
+          'network',
+          'disconnect',
+          id,
+          container_id,
+        )
+      rescue Interface::Error => e
+        raise unless e.message.include?('is not connected')
+      end
+
       def exists?
         !!id
       end

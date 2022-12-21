@@ -112,8 +112,6 @@ module Rascal
         @image
       end
 
-      private
-
       def id
         @id ||= Docker.interface.run(
           'container',
@@ -124,6 +122,8 @@ module Rascal
           output: :id,
         )
       end
+
+      private
 
       def image_exists?
         Docker.interface.run(

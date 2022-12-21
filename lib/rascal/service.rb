@@ -17,6 +17,9 @@ module Rascal
 
     def start_if_stopped(network: nil)
       unless @container.running?
+        if (container_id = @container.id)
+          network.disconnect(container_id)
+        end
         @container.start(network: network, network_alias: @alias, volumes: @volumes, env: @env_variables, command: @command)
       end
     end
