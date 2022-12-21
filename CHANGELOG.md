@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 Rascal follows semantic versioning. This has little consequence pre 1.0, so expect breaking changes.
 
+## 0.3.5 (2022-12-21)
+
+- Fix the "endpoint ... already exists in network" error.
+
+
 ## 0.3.4 (2022-03-16)
 
 - Activate Rubygems MFA
