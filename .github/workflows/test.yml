@@ -14,6 +14,8 @@ jobs:
       matrix:
         include:
         - ruby: 2.5.8
+          gemfile: Gemfile.2.5
+        - ruby: 3.2.0
           gemfile: Gemfile
     env:
       BUNDLE_GEMFILE: "${{ matrix.gemfile }}"
