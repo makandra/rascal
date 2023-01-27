@@ -97,3 +97,17 @@ Feature: Run "shell"
 
     When I successfully run `rascal shell job`
     Then docker /container run --rm -a STDOUT -a STDERR -a STDIN --interactive --tty -w /repo -v .*:/repo -v rascal-aruba-job-builds:/builds -e foo=bar --network deadbeef job-image:latest bash/ should have been called
+
+
+  Scenario: Don't crash when there is a default group
+    Given the following gitlab-ci config:
+      """
+      default:
+        retry: 1
+      job:
+        image: job-image:latest
+      """
+      And the docker image "job-image:latest" exists
+
+    When I successfully run `rascal shell job`
+    Then docker /container run/ should have been called

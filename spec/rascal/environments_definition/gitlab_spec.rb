@@ -104,6 +104,26 @@ module Rascal
           )
         end
 
+        it 'merges config from a default block' do
+          environment = from_config(<<~YAML, 'job-1')
+            default:
+              image: default-image:latest
+              variables:
+                foo-variable: foo
+
+            job-1:
+              variables:
+                bar-variable: bar
+          YAML
+
+          expect(environment.name).to eq 'job-1'
+          expect(environment.container.image).to eq 'default-image:latest'
+          expect(environment.env_variables).to eq(
+            'foo-variable' => 'foo',
+            'bar-variable' => 'bar',
+          )
+        end
+
       end
 
       describe '#available_environment_names' do

@@ -3,6 +3,8 @@ require 'yaml'
 module Rascal
   module EnvironmentsDefinition
     class Gitlab
+      DEFAULT_KEY = 'default'.freeze
+
       class << self
         def detect(path)
           if path.directory?
@@ -62,10 +64,11 @@ module Rascal
 
       def environments
         @environments ||= begin
+          default_config = @info.fetch(DEFAULT_KEY, {})
           @info.collect do |key, environment_config|
-            config = Config.new(deep_merge(environment_config, @rascal_config, @rascal_environment_config[key] || {}), key)
+            config = Config.new(deep_merge(environment_config, default_config, @rascal_config, @rascal_environment_config[key] || {}), key)
             docker_repo_dir = config.get('repo_dir', '/repo')
-            unless key.start_with?('.') || config.get('hide', false)
+            unless key.start_with?('.') || config.get('hide', false) || key == DEFAULT_KEY
               name = config.get('name', key)
               full_name = "#{@base_name}-#{name}"
               shared_volumes = [build_repo_volume(docker_repo_dir), build_builds_volume(full_name)]
