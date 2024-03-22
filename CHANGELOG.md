@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 Rascal follows semantic versioning. This has little consequence pre 1.0, so expect breaking changes.
 
+## 0.3.7 (2024-03-22)
+
+- Ignore `stage:` blocks in .gitlab-ci.yml.
+
+
 ## 0.3.6 (2023-01-27)
 
 - Handle `default:` blocks in .gitlab-ci.yml.

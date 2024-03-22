@@ -147,6 +147,22 @@ module Rascal
           expect(described_class.new(config_path).available_environment_names).to eq ['job-1', 'job-2']
         end
 
+        it 'ignores special keys' do
+          config_path = double(read: <<~YAML, parent: double(to_s: '/path/to/repo', basename: 'repo'))
+            default:
+              foo: bar
+
+            stages:
+              - a
+              - b
+
+            job:
+              image: job-1-image:latest
+          YAML
+
+          expect(described_class.new(config_path).available_environment_names).to eq ['job']
+        end
+
       end
 
     end
