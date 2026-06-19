@@ -122,7 +122,7 @@ module Rascal
             alias_name: service_config['alias'],
             image: service_config['name'],
             volumes: volumes,
-            env_variables: env_variables,
+            env_variables: env_variables.merge(service_config.fetch('variables', {})),
             command: service_config['command'],
           )
         end
@@ -144,4 +144,3 @@ module Rascal
     end
   end
 end
-
