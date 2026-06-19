@@ -54,6 +54,29 @@ module Rascal
           )
         end
 
+        it 'sets env variables for services' do
+          environment = from_config(<<~YAML, 'job')
+          job:
+            image: job-1-image:latest
+            variables:
+              FOO: foo
+              BAR: bar
+            services:
+              - name: service-1-image
+                alias: service-1
+                command: bin/start
+                variables:
+                  FOO: overridden foo
+                  BAZ: baz
+          YAML
+
+          expect(environment.services.first.env_variables).to eq(
+            'FOO' => 'overridden foo',
+            'BAR' => 'bar',
+            'BAZ' => 'baz',
+          )
+        end
+
         it 'adds a build and repo volume by default' do
           environment = from_config(<<~YAML, 'job')
             job:
