@@ -7,6 +7,7 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
 ## 0.3.9 (2026-06-19)
 
 - Support variables within service definitions.
+- Drop support for Ruby < 3.
 
 
 ## 0.3.8 (2025-02-10)
