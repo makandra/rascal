@@ -4,7 +4,7 @@ All notable changes to this project will be documented here.
 
 Rascal follows semantic versioning. This has little consequence pre 1.0, so expect breaking changes.
 
-## Unreleased
+## 0.4.0 (2026-07-30)
 
 - Add `rascal run ENVIRONMENT -- COMMAND`, which runs a single command in an
   environment without a TTY and exits with the command's status. Useful for
