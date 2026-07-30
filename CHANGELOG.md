@@ -4,7 +4,7 @@ All notable changes to this project will be documented here.
 
 Rascal follows semantic versioning. This has little consequence pre 1.0, so expect breaking changes.
 
-## Unreleased
+## 0.4.1 (2026-07-30)
 
 - Recreate a service container whose network no longer exists, instead of failing
   to start it.
