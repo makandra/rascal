@@ -1,5 +1,5 @@
 require 'aruba/cucumber'
-require 'aruba/in_process'
+require 'aruba/processes/in_process'
 require 'rascal/cli'
 
 # https://github.com/erikhuda/thor/wiki/Integrating-with-Aruba-In-Process-Runs

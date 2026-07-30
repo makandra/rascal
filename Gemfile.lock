@@ -67,6 +67,7 @@ GEM
     listen (3.8.0)
       rb-fsevent (~> 0.10, >= 0.10.3)
       rb-inotify (~> 0.9, >= 0.9.10)
+    logger (1.7.0)
     lumberjack (1.2.8)
     method_source (1.0.0)
     mini_mime (1.1.5)
@@ -108,6 +109,7 @@ DEPENDENCIES
   cucumber
   guard-cucumber
   guard-rspec
+  logger
   rake (~> 13.0)
   rascal!
   rspec
