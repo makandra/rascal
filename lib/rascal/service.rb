@@ -17,6 +17,7 @@ module Rascal
 
     def start_if_stopped(network: nil)
       unless @container.running?
+        @container.remove_if_network_missing(network)
         if (container_id = @container.id)
           network.disconnect(container_id)
         end
