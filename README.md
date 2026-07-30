@@ -101,6 +101,37 @@ Start a docker container (plus required services) and open an interactive shell.
 Currently requires a "bash" to exist.
 
 
+#### rascal run <job> -- <command>
+
+Run a single command in a docker container (plus required services), then exit
+with the command's exit status.
+
+```sh
+rascal run rspec -- bundle exec rspec spec/models/user_spec.rb
+```
+
+Unlike `rascal shell`, this allocates no TTY and needs no interaction, so it can
+be used from scripts, git hooks, editors and AI agents. Everything after `--` is
+passed through as a list of arguments, so arguments may contain spaces (`-n 'a
+test name'`). To use shell syntax such as `&&` or `cd`, wrap it explicitly:
+
+```sh
+rascal run rspec -- bash -c 'cd subproject && bundle exec rspec'
+```
+
+`before_shell` and `after_shell` still run around the command, but do not affect
+the exit status. Note that a failing `before_shell` command (e.g. `bundle check`
+in an environment that was never bundled) does not abort the run.
+
+Currently requires a "bash" to exist.
+
+
+#### rascal environments
+
+Print the names of all available (non-hidden) environments, one per line, so that
+scripts can discover them without parsing an error message.
+
+
 #### rascal clean <job> | --all [--volumes]
 
 Stop and remove all created containers, services, networks for either the given or all jobs.

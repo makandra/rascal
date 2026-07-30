@@ -30,6 +30,7 @@ module Rascal
         unless allow_failure || exit_status.success?
           raise Error, "docker container run failed"
         end
+        exit_status
       end
 
       private

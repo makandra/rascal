@@ -1,3 +1,5 @@
+require 'shellwords'
+
 module Rascal
   class Environment
     attr_reader :name, :network, :container, :env_variables, :services, :volumes, :working_dir, :before_shell
@@ -27,6 +29,27 @@ module Rascal
       )
     end
 
+    # Runs a single command in the environment, without a TTY, and returns its
+    # Process::Status. Unlike #run_shell this is suitable for non-interactive
+    # use (scripts, CI-like runs, AI agents), which need the command's real
+    # exit status.
+    #
+    # The command is a list of arguments, which is escaped before being handed
+    # to bash, so arguments may contain spaces and shell metacharacters. Use
+    # e.g. `bash -c "foo && bar"` to run something the shell must interpret.
+    def run_command(*command)
+      download_missing
+      start_services
+      @container.run_and_attach('bash', '-c', command_script(Shellwords.join(command)),
+        env: @env_variables,
+        network: @network,
+        volumes: @volumes,
+        working_dir: @working_dir,
+        allow_failure: true,
+        tty: false
+      )
+    end
+
     def clean(clean_volumes: false)
       @services.each(&:clean)
       @network.clean
@@ -41,6 +64,19 @@ module Rascal
     end
 
     private
+
+    # Runs before_shell/after_shell around the given command, but exits with the
+    # command's status. Without saving it, an `after_shell` entry would determine
+    # the exit status, and failures would go unnoticed.
+    def command_script(command)
+      [
+        *@before_shell,
+        command,
+        '__rascal_status=$?',
+        *@after_shell,
+        'exit $__rascal_status',
+      ].join(';')
+    end
 
     def download_missing
       @container.download_missing

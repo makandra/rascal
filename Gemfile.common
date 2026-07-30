@@ -9,6 +9,7 @@ gem 'rake', '~> 13.0'
 gem 'rspec'
 gem 'cucumber'
 gem 'aruba'
+gem 'logger'
 
 gem 'guard-rspec'
 gem 'guard-cucumber'

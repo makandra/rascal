@@ -4,6 +4,14 @@ All notable changes to this project will be documented here.
 
 Rascal follows semantic versioning. This has little consequence pre 1.0, so expect breaking changes.
 
+## 0.4.0 (2026-07-30)
+
+- Add `rascal run ENVIRONMENT -- COMMAND`, which runs a single command in an
+  environment without a TTY and exits with the command's status. Useful for
+  scripts, git hooks and AI agents, which cannot drive `rascal shell`.
+- Add `rascal environments`, which lists available environment names on stdout.
+
+
 ## 0.3.9 (2026-06-19)
 
 - Support variables within service definitions.
