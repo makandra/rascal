@@ -60,6 +60,9 @@ class DockerMockInterface < Rascal::Docker::Interface
       new_id = "%08x" % (@counter += 1)
       @containers[$1] = { id: new_id }
       new_id
+    when /container rm (\S*)/
+      @containers.delete_if { |_name, container| container[:id] == $1 }
+      $1
     when /container inspect (.*)/
       container = @containers.values.detect { |c| c[:id] == $1 }
       if container
@@ -119,6 +122,15 @@ end
 
 Given("the container {string} is running") do |name|
   Rascal::Docker.interface.containers[name] = { id: Digest::SHA1.hexdigest("container-#{name}"), State: { Running: true } }
+end
+
+# The mock answers every `network ls` with "deadbeef", so that is the id of the
+# environment's current network. Any other id belongs to a network that is gone.
+Given("the container {string} is attached to the network {string}") do |name, network_id|
+  Rascal::Docker.interface.containers[name] = {
+    id: Digest::SHA1.hexdigest("container-#{name}"),
+    NetworkSettings: { Networks: { 'some-network' => { 'NetworkID' => network_id } } },
+  }
 end
 
 Given("the volume {string} exists") do |name|

@@ -86,6 +86,47 @@ Feature: Run "shell"
         """
 
 
+  Scenario: Recreate a service container whose network no longer exists
+    Given the following gitlab-ci config:
+      """
+      job:
+        image: job-image:latest
+        services:
+          - name: service-1-image:latest
+            alias: service-1
+      """
+      And the container "rascal-aruba-job_service-1" is attached to the network "a-network-that-is-gone"
+
+    When I successfully run `rascal shell job`
+    Then stdout should contain:
+        """
+        Removing container for aruba-job_service-1, its network no longer exists
+        """
+      And docker /container rm 91801.*/ should have been called
+      And docker /container create --name rascal-aruba-job_service-1/ should have been called
+      And stdout should contain:
+        """
+        Starting container for aruba-job_service-1
+        """
+
+
+  Scenario: Keep a service container that is attached to the current network
+    Given the following gitlab-ci config:
+      """
+      job:
+        image: job-image:latest
+        services:
+          - name: service-1-image:latest
+            alias: service-1
+      """
+      And the container "rascal-aruba-job_service-1" is attached to the network "deadbeef"
+
+    When I successfully run `rascal shell job`
+    Then stdout should not contain "its network no longer exists"
+      And docker /container rm/ should not have been called
+      And docker /container create --name rascal-aruba-job_service-1/ should not have been called
+
+
   Scenario: Run main container
     Given the following gitlab-ci config:
       """

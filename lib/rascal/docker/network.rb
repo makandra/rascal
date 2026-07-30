@@ -39,11 +39,15 @@ module Rascal
         end
       end
 
+      # The full id, not the short one docker prints by default: a container
+      # records the network it is attached to by full id, and
+      # Container#remove_if_network_missing compares the two.
       def id
         @id ||= Docker.interface.run(
           'network',
           'ls',
           '--quiet',
+          '--no-trunc',
           '--filter', "name=^#{@prefixed_name}$",
           output: :id,
         )
