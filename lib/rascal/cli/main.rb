@@ -36,6 +36,24 @@ module Rascal
         end
       end
 
+      desc 'environments', 'List the names of all available environments'
+      def environments
+        handle_error do
+          Environments.new(self, options).run
+        end
+      end
+
+      # Thor::Actions already defines #run, hence the mapping.
+      map 'run' => '_run'
+      stop_on_unknown_option! :_run
+      desc 'run ENVIRONMENT COMMAND', 'Run a command in the given environment and exit with its status'
+      def _run(environment_name = nil, *command)
+        handle_error do
+          command = command.drop(1) if command.first == '--'
+          Run.new(self, options, environment_name, command).run
+        end
+      end
+
       desc 'clean ENVIRONMENT', 'Stop and remove docker containers for the given environment'
       method_option :volumes, type: :boolean, default: false, desc: 'Remove (cache) volumes'
       method_option :all, type: :boolean, default: false, desc: 'Clean all environments'

@@ -65,16 +65,14 @@ module Rascal
         )
       end
 
-      def run_and_attach(*command, env: {}, network: nil, volumes: [], working_dir: nil, allow_failure: false)
+      def run_and_attach(*command, env: {}, network: nil, volumes: [], working_dir: nil, allow_failure: false, tty: true)
         Docker.interface.run_and_attach(
           'container',
           'run',
           '--rm',
           '-a', 'STDOUT',
           '-a', 'STDERR',
-          '-a', 'STDIN',
-          '--interactive',
-          '--tty',
+          *(['-a', 'STDIN', '--interactive', '--tty'] if tty),
           *(['-w', working_dir] if working_dir),
           *(volumes.flat_map { |v| ['-v', v.to_param] }),
           *env_args(env),

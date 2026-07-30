@@ -4,8 +4,10 @@ class DockerMockInterface < Rascal::Docker::Interface
   include RSpec::Mocks::ExampleMethods
 
   attr_reader :history, :images, :containers, :volumes
+  attr_accessor :attached_exit_code
 
   def initialize(*)
+    @attached_exit_code = 0
     @history = []
     @images = Hash.new { |h, k| h[k] = {} }
     @containers = Hash.new { |h, k| h[k] = {} }
@@ -22,7 +24,7 @@ class DockerMockInterface < Rascal::Docker::Interface
 
   def spawn(*command)
     @history << command
-    exit_status
+    exit_status(@attached_exit_code.zero?, @attached_exit_code)
   end
 
   def popen3(*command, &block)
@@ -68,8 +70,12 @@ class DockerMockInterface < Rascal::Docker::Interface
     end
   end
 
-  def exit_status(success = true)
-    instance_double(Process::Status, success?: success)
+  def exit_status(success = true, code = nil)
+    instance_double(Process::Status,
+      success?: success,
+      exitstatus: code || (success ? 0 : 1),
+      termsig: nil,
+    )
   end
 end
 
@@ -93,6 +99,15 @@ Then("docker {command} should not have been called") do |command|
   expect(Rascal::Docker.interface.flat_history).not_to include("docker #{command}")
 end
 
+Then("docker {regexp} should not have been called") do |regexp|
+  history = Rascal::Docker.interface.flat_history.join("\n")
+  expect(history).not_to match(/docker #{regexp}/)
+end
+
+
+Given("the container command will exit with {int}") do |code|
+  Rascal::Docker.interface.attached_exit_code = code
+end
 
 Given("the docker image {string} exists") do |name|
   Rascal::Docker.interface.images[name] = { id: Digest::SHA1.hexdigest("image-#{name}") }
