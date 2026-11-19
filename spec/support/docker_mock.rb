@@ -30,16 +30,16 @@ class DockerMockInterface < Rascal::Docker::Interface
     @history.map { |command| command.reject { |part| part.is_a?(Hash) }.join(' ') }
   end
 
-  def image_exists(name, exposed_ports: [])
+  def image_exists(name, exposed_ports: [], entrypoint: nil)
     @images[name] = {
       Id: Digest::SHA1.hexdigest("image-#{name}"),
-      Config: { ExposedPorts: exposed_ports.to_h { |port| [port, {}] } },
+      Config: { ExposedPorts: exposed_ports.to_h { |port| [port, {}] }, Entrypoint: entrypoint },
     }
   end
 
-  def container_exists(name, running: false, network_id: nil)
+  def container_exists(name, running: false, network_id: nil, started_at: Time.now - 3600)
     @containers[name] = { id: Digest::SHA1.hexdigest("container-#{name}") }
-    @containers[name][:State] = { Running: true } if running
+    @containers[name][:State] = { Running: true, StartedAt: started_at.utc.iso8601(9) } if running
     @containers[name][:NetworkSettings] = { Networks: { 'some-network' => { 'NetworkID' => network_id } } } if network_id
   end
 

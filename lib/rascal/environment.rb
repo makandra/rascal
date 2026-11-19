@@ -52,8 +52,8 @@ module Rascal
     end
 
     def run_shell
-      started_services = start
-      run_in_container(script('bash', started_services), tty: true).tap { report_stopped_services }
+      starting_services = start
+      run_in_container(script('bash', starting_services), tty: true).tap { report_stopped_services }
     end
 
     # Runs a single command in the environment, without a TTY, and returns its
@@ -65,8 +65,8 @@ module Rascal
     # to bash, so arguments may contain spaces and shell metacharacters. Use
     # e.g. `bash -c "foo && bar"` to run something the shell must interpret.
     def run_command(*command)
-      started_services = start
-      run_in_container(script(Shellwords.join(command), started_services), tty: false).tap { report_stopped_services }
+      starting_services = start
+      run_in_container(script(Shellwords.join(command), starting_services), tty: false, forward_stdin: stdin_redirected?).tap { report_stopped_services }
     end
 
     def clean(clean_volumes: false)
@@ -86,12 +86,24 @@ module Rascal
 
     private
 
-    # Returns the services it had to start.
+    # Returns the services that may not be ready yet: those it started, and those another
+    # command started less than services_timeout ago.
     def start
       raise_problems
       @warnings.each { |warning| stderr.puts("Warning: #{warning}") }
       download_missing
-      start_services
+      started = start_services
+      @services.select { |service| started.include?(service) || service.starting?(@services_timeout) }
+    end
+
+    # Only passes stdin on when it comes from a file or pipe, like `rascal run job -- psql < dump.sql`,
+    # or from a socket with input waiting, like from Node's child_process. A terminal, or a socket
+    # that stays open without input, would make commands that read stdin hang.
+    def stdin_redirected?
+      stat = stdin.stat
+      stat.pipe? || stat.file? || (stat.socket? && !IO.select([stdin], nil, nil, 0).nil?)
+    rescue NoMethodError, IOError, SystemCallError
+      false
     end
 
     # A service that stopped, typically because of bad settings, makes commands fail in
@@ -107,7 +119,7 @@ module Rascal
       raise Error, @problems.join("\n") if @problems.any?
     end
 
-    def run_in_container(script, tty:)
+    def run_in_container(script, tty:, forward_stdin: tty)
       ssh_volumes, ssh_env = ssh_agent_access
       @container.run_and_attach('bash', '-c', script,
         env: @env_variables.merge(ssh_env),
@@ -116,21 +128,21 @@ module Rascal
         working_dir: @working_dir,
         allow_failure: true,
         tty: tty,
+        forward_stdin: forward_stdin,
       )
     end
 
     # The bash script that runs the given command in the container:
     #
-    # 1. Waits until the services it just started accept connections, like a GitLab runner does.
-    #    Services that were already running are ready.
+    # 1. Waits until services that may not be ready yet accept connections, like a GitLab runner does.
     # 2. Runs before_shell, the command and after_shell, and exits with the command's status.
     #    Without saving it, an `after_shell` entry would determine the exit status, and
     #    failures would go unnoticed.
     # 3. Gives files the container created in the project back to the host user, since
     #    the container usually runs as root.
-    def script(command, started_services)
+    def script(command, starting_services)
       [
-        *wait_for(started_services),
+        *wait_for(starting_services),
         *@before_shell,
         command,
         '__rascal_status=$?',

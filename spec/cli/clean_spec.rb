@@ -32,7 +32,7 @@ describe 'rascal clean' do
     result = run_rascal!('clean', 'job')
 
     expect(result.stderr).to include('Removing 1 leftover command container for app-job')
-    expect(docker.commands).to include("docker container rm --force #{docker.container_id('rascal-app-job-run-0123abcd')}")
+    expect(docker.commands).to include("docker container rm --force --volumes #{docker.container_id('rascal-app-job-run-0123abcd')}")
   end
 
   it 'keeps volumes unless asked to remove them' do

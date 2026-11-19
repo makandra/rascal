@@ -1,4 +1,6 @@
 require 'securerandom'
+require 'shellwords'
+require 'time'
 
 module Rascal
   module Docker
@@ -26,11 +28,24 @@ module Rascal
         end
       end
 
+      # Whether the entrypoint (from the CI config, or else the image's) is a shell that
+      # expects the command as one string, like `sh -c`, `bash -lc` or `sh -ec`.
+      def shell_entrypoint?
+        entrypoint = @entrypoint || (image_exists? || {}).dig('Config', 'Entrypoint')
+        Array(entrypoint).last.to_s.match?(/\A-[a-zA-Z]*c[a-zA-Z]*\z/)
+      end
+
       # The TCP ports the image declares with EXPOSE, like [5432] for postgres.
       def exposed_tcp_ports
         info = image_exists?
         ports = info && info.dig('Config', 'ExposedPorts') || {}
         ports.keys.filter_map { |port| port[%r{\A(\d+)/tcp\z}, 1]&.to_i }
+      end
+
+      # When the container was last started, or nil.
+      def started_at
+        started_at = container_info&.dig('State', 'StartedAt')
+        Time.parse(started_at) if started_at && !started_at.start_with?('0001-')
       end
 
       def running?
@@ -90,10 +105,11 @@ module Rascal
 
       # Runs a one-off container for a command. If rascal gets a signal, like when a script
       # or an agent gives up on a command, it removes the container, which would keep running otherwise.
-      def run_and_attach(*command, env: {}, network: nil, volumes: [], working_dir: nil, allow_failure: false, tty: true)
+      # With `tty`, the container gets a terminal. With `forward_stdin`, it reads rascal's stdin.
+      def run_and_attach(*command, env: {}, network: nil, volumes: [], working_dir: nil, allow_failure: false, tty: true, forward_stdin: tty)
         run_name = "#{@prefixed_name}#{RUN_SUFFIX}#{SecureRandom.hex(4)}"
         remove_on_signal(run_name) do
-          run_container(run_name, *command, env: env, network: network, volumes: volumes, working_dir: working_dir, allow_failure: allow_failure, tty: tty)
+          run_container(run_name, *command, env: env, network: network, volumes: volumes, working_dir: working_dir, allow_failure: allow_failure, tty: tty, forward_stdin: forward_stdin)
         end
       end
 
@@ -103,10 +119,10 @@ module Rascal
         return if ids.empty?
 
         info "Removing #{ids.size} leftover command container#{'s' if ids.size > 1} for #{@name}"
-        Docker.interface.run('container', 'rm', '--force', *ids)
+        Docker.interface.run('container', 'rm', '--force', '--volumes', *ids)
       end
 
-      def run_container(run_name, *command, env:, network:, volumes:, working_dir:, allow_failure:, tty:)
+      def run_container(run_name, *command, env:, network:, volumes:, working_dir:, allow_failure:, tty:, forward_stdin:)
         Docker.interface.run_and_attach(
           'container',
           'run',
@@ -114,8 +130,7 @@ module Rascal
           '--name', run_name,
           '-a', 'STDOUT',
           '-a', 'STDERR',
-          # Forward stdin, so `rascal run job -- psql < dump.sql` works.
-          '-a', 'STDIN', '--interactive',
+          *(['-a', 'STDIN', '--interactive'] if forward_stdin),
           *('--tty' if tty),
           *(['--entrypoint', @entrypoint.first.to_s] if @entrypoint),
           *(['-w', working_dir] if working_dir),
@@ -124,7 +139,8 @@ module Rascal
           *(['--network', network.id] if network),
           @image,
           *(@entrypoint&.drop(1)),
-          *command,
+          # An entrypoint like `sh -c` takes the command as one string.
+          *(shell_entrypoint? ? [Shellwords.join(command)] : command),
           redirect_io: {
             out: stdout,
             err: stderr,
@@ -168,7 +184,7 @@ module Rascal
       def remove_on_signal(run_name)
         previous_handlers = %w[INT TERM HUP].to_h do |signal|
           handler = Signal.trap(signal) do
-            pid = Process.spawn('docker', 'container', 'rm', '--force', run_name, out: File::NULL, err: File::NULL)
+            pid = Process.spawn('docker', 'container', 'rm', '--force', '--volumes', run_name, out: File::NULL, err: File::NULL)
             Process.wait(pid)
             exit(128 + Signal.list.fetch(signal))
           end

@@ -28,11 +28,12 @@ module CLIHelpers
 
   # Runs rascal with the given arguments in the project directory, and returns its output
   # and exit code.
-  def run_rascal(*args)
+  # `stdin` is what rascal reads from. By default, a StringIO, which rascal treats like a terminal.
+  def run_rascal(*args, stdin: StringIO.new)
     stdout = StringIO.new
     stderr = StringIO.new
-    original_stdout, original_stderr = $stdout, $stderr
-    $stdout, $stderr = stdout, stderr
+    original_stdout, original_stderr, original_stdin = $stdout, $stderr, $stdin
+    $stdout, $stderr, $stdin = stdout, stderr, stdin
     exit_code = begin
       # The option goes right after the command, since `run` passes everything after `--` on.
       Rascal::CLI::Main.start([args.first, '--config-file', project_dir, *args.drop(1)])
@@ -40,14 +41,14 @@ module CLIHelpers
     rescue SystemExit => e
       e.status
     ensure
-      $stdout, $stderr = original_stdout, original_stderr
+      $stdout, $stderr, $stdin = original_stdout, original_stderr, original_stdin
       Rascal::IOHelper.setup
     end
     Result.new(stdout.string, stderr.string, exit_code)
   end
 
-  def run_rascal!(*args)
-    run_rascal(*args).tap do |result|
+  def run_rascal!(*args, **options)
+    run_rascal(*args, **options).tap do |result|
       raise "rascal #{args.join(' ')} failed with exit code #{result.exit_code}:\n#{result.stdout}\n#{result.stderr}" unless result.success?
     end
   end

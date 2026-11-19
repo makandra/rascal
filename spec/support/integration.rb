@@ -45,6 +45,7 @@ module IntegrationHelpers
   end
 
   def create_project(gitlab_ci_yml)
+    remove_project
     @project_dir = File.join(Dir.tmpdir, "rascal-it-#{SecureRandom.hex(4)}")
     Dir.mkdir(@project_dir)
     File.write(File.join(@project_dir, '.gitlab-ci.yml'), gitlab_ci_yml)
@@ -90,6 +91,7 @@ module IntegrationHelpers
     docker('run', '--rm', '-v', "#{project_dir}:/project", JOB_IMAGE, 'sh', '-c', 'rm -rf /project/* /project/.[!.]*')
     FileUtils.rm_rf(project_dir)
     warn "Integration spec cleanup: could not remove #{project_dir}" if File.exist?(project_dir)
+    FileUtils.rm_f(Dir[File.join(Dir.tmpdir, "rascal-#{project_name}-*.lock")])
   end
 
   def remove_leftover_docker_resources

@@ -76,8 +76,8 @@ When you run a command in an environment, rascal:
 
 1. pulls the job's image and the images of its services, if they are missing;
 2. starts the job's services on a Docker network, reachable under their aliases (like `db` or
-   `redis`), unless they are running already. It waits until each service it started accepts
-   connections on one of its ports;
+   `redis`), unless they are running already. It waits until each service that is still starting
+   accepts connections on one of its ports;
 3. starts a new container from the job's image, with the job's variables, and your project
    directory mounted at `/repo`;
 4. runs a bash script in it: the `before_shell` commands from the `.rascal` block, your command,
@@ -265,7 +265,11 @@ What to expect from `rascal run`:
 - **Output:** stdout is your command's stdout (plus the output of `before_shell` and `after_shell`).
   rascal's own messages, like `Starting container for ...`, image downloads and warnings, go to
   stderr.
-- **Input:** stdin is passed to the command, so `rascal run rspec -- psql < dump.sql` works.
+- **Input:** stdin is passed to the command when it comes from a file or a pipe, so
+  `rascal run rspec -- psql < dump.sql` works, or from a socket that already has input, as Node's
+  `child_process` provides it. A terminal, or a socket without input, is not passed on, so a command
+  waiting for input, like a forgotten `debugger` call, gets none instead of hanging. A pipe that
+  stays open without input still makes such a command wait.
 - **Exit status:** your command's, or 128 plus the signal number if it was killed. If rascal itself
   fails, for example for an unknown environment, it exits with 1 and explains why on stderr. If Docker
   cannot start the container, for example because the image has no bash, the status is 125 to 127.
@@ -437,8 +441,9 @@ Your project directory is mounted into the services too.
 
 After starting services, rascal waits until each accepts connections on one of the TCP ports its
 image exposes, or on `HEALTHCHECK_TCP_PORT` from the service's own variables, for up to
-`services_timeout` seconds. Then it runs the command anyway. Services that were already running,
-or that expose no port, are not waited for.
+`services_timeout` seconds. Then it runs the command anyway. It also waits for services another
+command started less than `services_timeout` seconds ago, so parallel commands work on a fresh
+environment. Services that expose no port are not waited for.
 
 ### Variables
 

@@ -42,7 +42,7 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
 - Job names like `2.6`, which YAML reads as numbers, work in `.rascal: jobs:`.
 - rascal's own messages, like `Starting container for ...` and image downloads, go to stderr, so a
   command's stdout only has the command's output.
-- `rascal run` passes stdin to the command.
+- `rascal run` passes stdin to the command when it comes from a file or a pipe.
 - Support `entrypoint` for a job's image.
 - Warn about includes rascal cannot read.
 - Several commands can start the same environment at once.

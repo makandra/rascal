@@ -45,6 +45,12 @@ module Rascal
       @container.running?
     end
 
+    # Whether the service is running, but started so recently that it may not be ready yet.
+    def starting?(seconds)
+      started_at = @container.started_at
+      running? && started_at && started_at > Time.now - seconds
+    end
+
     def clean
       @container.clean
     end

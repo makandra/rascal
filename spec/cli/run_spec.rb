@@ -56,7 +56,7 @@ describe 'rascal run' do
     expect(result.stderr).to include('Log in with `docker login registry.example.com`, then try again.')
   end
 
-  it 'forwards stdin without a terminal, reports what it does on stderr, and keeps stdout for the command' do
+  it 'reports what it does on stderr, and keeps stdout for the command' do
     gitlab_ci_config(<<~YAML)
       job:
         image: job-image:latest
@@ -67,9 +67,80 @@ describe 'rascal run' do
 
     result = run_rascal!('run', 'job', '--', 'true')
 
-    expect(docker.commands.grep(/container run/).last).to match(/ -a STDOUT -a STDERR -a STDIN --interactive -w /)
     expect(result.stderr).to include('Downloading image for app-job', 'Starting container for app-job_redis')
     expect(result.stdout).to eq ''
+  end
+
+  it 'passes stdin on only when it comes from a pipe or file, since a terminal or socket may never close' do
+    gitlab_ci_config(<<~YAML)
+      job:
+        image: job-image:latest
+    YAML
+
+    run_rascal!('run', 'job', '--', 'true')
+    expect(docker.commands.grep(/container run/).last).not_to include('-a STDIN')
+
+    reader, writer = IO.pipe
+    writer.close
+    run_rascal!('run', 'job', '--', 'psql', stdin: reader)
+    expect(docker.commands.grep(/container run/).last).to include('-a STDOUT -a STDERR -a STDIN --interactive -w /repo')
+  end
+
+  it 'passes stdin on from a socket only when input is waiting, like from Node child_process' do
+    gitlab_ci_config(<<~YAML)
+      job:
+        image: job-image:latest
+    YAML
+    idle, _other_end = UNIXSocket.pair
+    with_input, sender = UNIXSocket.pair
+    sender.write("input\n")
+    sender.close
+
+    run_rascal!('run', 'job', '--', 'psql', stdin: idle)
+    expect(docker.commands.grep(/container run/).last).not_to include('-a STDIN')
+
+    run_rascal!('run', 'job', '--', 'psql', stdin: with_input)
+    expect(docker.commands.grep(/container run/).last).to include('-a STDIN --interactive')
+  end
+
+  describe 'with a shell as entrypoint' do
+
+    def arguments_after_image(image)
+      run_rascal!('run', 'job', '--', 'true')
+      command = docker.history.reverse.detect { |c| c.include?('run') && c.include?('container') }.reject { |part| part.is_a?(Hash) }
+      command.drop(command.index(image) + 1)
+    end
+
+    it 'passes the command as one string when the job sets an entrypoint like sh -c, bash -lc or sh -ec' do
+      ['-c', '-lc', '-ec'].each do |option|
+        gitlab_ci_config(<<~YAML)
+          job:
+            image:
+              name: job-image:latest
+              entrypoint: ['/bin/sh', '#{option}']
+        YAML
+
+        arguments = arguments_after_image('job-image:latest')
+
+        expect(arguments.size).to eq(2), "for #{option}"
+        expect(arguments.first).to eq option
+        expect(arguments.last).to start_with('bash -c ')
+      end
+    end
+
+    it "passes the command as one string when the image's own entrypoint is such a shell" do
+      gitlab_ci_config(<<~YAML)
+        job:
+          image: shell-image:latest
+      YAML
+      docker.image_exists('shell-image:latest', entrypoint: ['/bin/sh', '-c'])
+
+      arguments = arguments_after_image('shell-image:latest')
+
+      expect(arguments.size).to eq 1
+      expect(arguments.last).to start_with('bash -c ')
+    end
+
   end
 
   it "overrides the image's entrypoint when the job sets one" do
@@ -82,7 +153,7 @@ describe 'rascal run' do
 
     run_rascal!('run', 'job', '--', 'true')
 
-    expect(docker.commands.grep(/container run/).last).to include("--interactive --entrypoint  -w /repo ")
+    expect(docker.commands.grep(/container run/).last).to include("-a STDERR --entrypoint  -w /repo ")
   end
 
   it 'warns about includes it cannot read' do
@@ -155,6 +226,20 @@ describe 'rascal run' do
       docker.image_exists('mysql:5.7', exposed_ports: ['3306/tcp', '33060/tcp'])
 
       expect(container_script).to include(';__rascal_wait_for db 120 3306;')
+    end
+
+    it 'waits for services another command started less than services_timeout ago' do
+      gitlab_ci_config(<<~YAML)
+        job:
+          image: job-image:latest
+          services:
+            - name: mysql:5.7
+              alias: db
+      YAML
+      docker.image_exists('mysql:5.7', exposed_ports: ['3306/tcp'])
+      docker.container_exists('rascal-app-job_db', running: true, started_at: Time.now - 5)
+
+      expect(container_script).to include(';__rascal_wait_for db 30 3306;')
     end
 
     it 'does not wait for services that were already running' do

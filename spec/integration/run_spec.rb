@@ -97,6 +97,20 @@ describe 'rascal run' do
     expect(results.collect(&:exit_code)).to eq [0, 0, 0]
   end
 
+  it 'runs the command with a shell entrypoint like bash -lc' do
+    create_project(<<~YAML)
+      job:
+        image:
+          name: #{IntegrationHelpers::JOB_IMAGE}
+          entrypoint: ['bash', '-lc']
+    YAML
+
+    result = rascal('run', 'job', '--', 'bash', '-c', 'echo ran; exit 3')
+
+    expect(result.stdout).to eq "ran\n"
+    expect(result.exit_code).to eq 3
+  end
+
   it 'exits with the status of the command' do
     create_job_project
 
@@ -174,6 +188,24 @@ describe 'rascal run' do
       result = rascal!('run', 'job', '--', 'bash', '-c', redis_command('GET greeting', reply_lines: 2))
 
       expect(result.stdout).to include("reply: hello\n")
+    end
+
+    it 'lets a second command wait for services that the first one is still starting' do
+      create_project(<<~YAML)
+        job:
+          image: #{IntegrationHelpers::JOB_IMAGE}
+          services:
+            - name: #{IntegrationHelpers::REDIS_IMAGE}
+              alias: redis
+              command: ['sh', '-c', 'sleep 3; exec redis-server']
+      YAML
+      connect = ['bash', '-c', '(exec 3<>/dev/tcp/redis/6379) && echo connected']
+
+      first = Thread.new { rascal('run', 'job', '--', *connect) }
+      sleep 1.5
+      second = rascal('run', 'job', '--', *connect)
+
+      expect([first.value.stdout, second.stdout]).to eq ["connected\n", "connected\n"]
     end
 
     it 'points to the logs of a service that stopped' do
