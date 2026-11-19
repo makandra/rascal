@@ -75,6 +75,28 @@ describe 'rascal run' do
     expect(run_containers.call).to eq []
   end
 
+  it 'passes stdin to the command' do
+    create_job_project
+
+    result = rascal!('run', 'job', '--', 'cat', stdin: "piped in\n")
+
+    expect(result.stdout).to eq "piped in\n"
+  end
+
+  it 'starts an environment with services from several commands at once' do
+    create_project(<<~YAML)
+      job:
+        image: #{IntegrationHelpers::JOB_IMAGE}
+        services:
+          - name: #{IntegrationHelpers::REDIS_IMAGE}
+            alias: redis
+    YAML
+
+    results = 3.times.collect { Thread.new { rascal('run', 'job', '--', 'true') } }.collect(&:value)
+
+    expect(results.collect(&:exit_code)).to eq [0, 0, 0]
+  end
+
   it 'exits with the status of the command' do
     create_job_project
 

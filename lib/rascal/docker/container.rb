@@ -10,15 +10,18 @@ module Rascal
 
       attr_reader :image, :prefixed_name
 
-      def initialize(name, image)
+      # `entrypoint` overrides the image's entrypoint, like `image: entrypoint:` in GitLab.
+      # [] or [''] removes it.
+      def initialize(name, image, entrypoint: nil)
         @name = name
         @prefixed_name = "#{NAME_PREFIX}#{name}"
         @image = image
+        @entrypoint = entrypoint && (entrypoint.empty? ? [''] : entrypoint)
       end
 
       def download_missing
         unless image_exists?
-          say "Downloading image for #{@name}"
+          info "Downloading image for #{@name}"
           pull
         end
       end
@@ -55,13 +58,13 @@ module Rascal
         attached = attached_network_ids
         return if attached.empty? || attached.include?(network.id)
 
-        say "Removing container for #{@name}, its network no longer exists"
+        info "Removing container for #{@name}, its network no longer exists"
         remove_container
         @id = nil
       end
 
       def start(network: nil, network_aliases: [], volumes: [], env: {}, command: [])
-        say "Starting container for #{@name}"
+        info "Starting container for #{@name}"
         create(network: network, network_aliases: network_aliases, volumes: volumes, env: env, command: command) unless exists?
         Docker.interface.run(
           'container',
@@ -99,7 +102,7 @@ module Rascal
         ids = Docker.interface.run('container', 'ps', '--all', '--quiet', '--filter', "name=^/#{@prefixed_name}#{RUN_SUFFIX}", output: :text).to_s.split
         return if ids.empty?
 
-        say "Removing #{ids.size} leftover command container#{'s' if ids.size > 1} for #{@name}"
+        info "Removing #{ids.size} leftover command container#{'s' if ids.size > 1} for #{@name}"
         Docker.interface.run('container', 'rm', '--force', *ids)
       end
 
@@ -111,12 +114,16 @@ module Rascal
           '--name', run_name,
           '-a', 'STDOUT',
           '-a', 'STDERR',
-          *(['-a', 'STDIN', '--interactive', '--tty'] if tty),
+          # Forward stdin, so `rascal run job -- psql < dump.sql` works.
+          '-a', 'STDIN', '--interactive',
+          *('--tty' if tty),
+          *(['--entrypoint', @entrypoint.first.to_s] if @entrypoint),
           *(['-w', working_dir] if working_dir),
           *(volumes.flat_map { |v| ['-v', v.to_param] }),
           *env_args(env),
           *(['--network', network.id] if network),
           @image,
+          *(@entrypoint&.drop(1)),
           *command,
           redirect_io: {
             out: stdout,
@@ -129,18 +136,18 @@ module Rascal
 
       def clean
         if running?
-          say "Stopping container for #{@name}"
+          info "Stopping container for #{@name}"
           stop_container
         end
         if exists?
-          say "Removing container for #{@name}"
+          info "Removing container for #{@name}"
           remove_container
         end
       end
 
       def update(skip: [])
         return if skip.include?(@image)
-        say "Updating image #{@image}"
+        info "Updating image #{@image}"
         pull
         @image
       end
@@ -176,7 +183,7 @@ module Rascal
         Docker.interface.run(
           'pull',
           @image,
-          stdout: stdout,
+          stdout: stderr,
         )
       rescue Interface::Error => e
         raise unless e.message.match?(/unauthorized|authentication required|denied|no basic auth credentials/i)

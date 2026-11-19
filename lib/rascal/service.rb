@@ -2,10 +2,11 @@ module Rascal
   class Service
     attr_reader :name, :container, :aliases, :env_variables, :command
 
-    def initialize(name, env_variables: {}, image:, aliases:, volumes: [], command: nil)
+    def initialize(name, env_variables: {}, image:, aliases:, volumes: [], command: nil, healthcheck_port: nil)
       @name = name
       @container = Docker::Container.new(name, image)
       @aliases = aliases
+      @healthcheck_port = healthcheck_port
       @volumes = volumes
       @env_variables = env_variables
       @command = [*command]
@@ -13,9 +14,9 @@ module Rascal
 
     # The TCP ports rascal waits for before running commands, of which one must accept
     # connections. Like the GitLab runner, takes HEALTHCHECK_TCP_PORT from the service's
-    # variables, or else the ports the image exposes.
+    # own variables, or else the ports the image exposes.
     def ports
-      if (port = @env_variables['HEALTHCHECK_TCP_PORT'].to_s[/\A\d+\z/])
+      if (port = @healthcheck_port.to_s[/\A\d+\z/])
         [port.to_i]
       else
         @container.exposed_tcp_ports

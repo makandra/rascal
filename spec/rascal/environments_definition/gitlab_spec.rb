@@ -203,6 +203,17 @@ module Rascal
           expect(environment.env_variables).to include('LOCAL' => 'local', 'SHARED' => 'local', 'BLOCK' => 'rascal-block', 'LOCAL_JOB' => 'local')
         end
 
+        it 'replaces characters Docker does not allow in names' do
+          environment = definition(<<~YAML, project: 'my app').environment('job')
+            job:
+              image: job-image:latest
+          YAML
+
+          expect(environment.network).to have_attributes(id: anything)
+          expect(environment.container.prefixed_name).to eq 'rascal-my_app-job'
+          expect(environment.env_variables).to include('CI_PROJECT_NAME' => 'my app')
+        end
+
         it 'merges config from a default block' do
           environment = from_config(<<~YAML, 'job-1')
             default:
@@ -320,6 +331,27 @@ module Rascal
               /Variable JOB_VARIABLE references UNDEFINED_IN_JOB/,
               /Variable POSTGRES_PASSWORD references DB_PASSWORD/,
             )
+          end
+
+          it "only takes HEALTHCHECK_TCP_PORT from the service's own variables" do
+            environment = from_config(<<~YAML, 'job')
+              job:
+                image: job-image:latest
+                variables:
+                  HEALTHCHECK_TCP_PORT: '1234'
+                services:
+                  - name: postgres:16
+                    alias: db
+                  - name: mysql:8
+                    alias: mysql
+                    variables:
+                      HEALTHCHECK_TCP_PORT: '3306'
+            YAML
+
+            postgres, mysql = environment.services
+            allow(postgres.container).to receive(:exposed_tcp_ports).and_return([5432])
+            expect(postgres.ports).to eq [5432]
+            expect(mysql.ports).to eq [3306]
           end
 
           it 'derives the alias from the image of a service without one' do

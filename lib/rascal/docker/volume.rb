@@ -17,7 +17,7 @@ module Rascal
 
         def clean
           if exists?
-            say "Removing volume #{@prefixed_name}"
+            info "Removing volume #{@prefixed_name}"
             Docker.interface.run(
               'volume',
               'rm',

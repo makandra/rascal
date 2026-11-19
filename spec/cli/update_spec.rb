@@ -11,7 +11,7 @@ describe 'rascal update' do
 
     result = run_rascal!('update', 'job')
 
-    expect(result.stdout).to include('Updating image service-image:stable', 'Updating image job-image:latest')
+    expect(result.stderr).to include('Updating image service-image:stable', 'Updating image job-image:latest')
     expect(docker.commands).to include('docker pull service-image:stable', 'docker pull job-image:latest')
   end
 

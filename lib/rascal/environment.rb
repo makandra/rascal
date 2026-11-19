@@ -1,4 +1,5 @@
 require 'shellwords'
+require 'tmpdir'
 
 module Rascal
   class Environment
@@ -34,10 +35,10 @@ module Rascal
     # With `ssh_agent`, the host's SSH agent and known hosts are available in the container,
     # so it can fetch private dependencies over SSH. `services_timeout` is how many seconds to
     # wait for services to accept connections.
-    def initialize(full_name, name:, image:, env_variables: {}, services: [], volumes: [], before_shell: [], after_shell: [], working_dir: nil, problems: [], warnings: [], ssh_agent: false, services_timeout: DEFAULT_SERVICES_TIMEOUT)
+    def initialize(full_name, name:, image:, entrypoint: nil, env_variables: {}, services: [], volumes: [], before_shell: [], after_shell: [], working_dir: nil, problems: [], warnings: [], ssh_agent: false, services_timeout: DEFAULT_SERVICES_TIMEOUT)
       @name = name
       @network = Docker::Network.new(full_name)
-      @container = Docker::Container.new(full_name, image)
+      @container = Docker::Container.new(full_name, image, entrypoint: entrypoint)
       @env_variables = env_variables
       @services = services
       @volumes = volumes
@@ -184,9 +185,21 @@ module Rascal
       @services.each(&:download_missing)
     end
 
+    # Several commands may start the same environment at once, like parallel test runs.
+    # A lock keeps them from creating the same network and services, or disconnecting
+    # a service another one just started.
     def start_services
-      @network.create unless @network.exists?
-      @services.select { |service| service.start_if_stopped(network: @network) }
+      with_start_lock do
+        @network.create unless @network.exists?
+        @services.select { |service| service.start_if_stopped(network: @network) }
+      end
+    end
+
+    def with_start_lock
+      File.open(File.join(Dir.tmpdir, "#{@container.prefixed_name}.lock"), File::RDWR | File::CREAT, 0o600) do |lock|
+        lock.flock(File::LOCK_EX)
+        yield
+      end
     end
   end
 end

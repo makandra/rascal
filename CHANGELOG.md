@@ -7,7 +7,7 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
 ## Unreleased
 
 - Read `.gitlab-ci.yml` files with global `variables:` or `workflow:`, which rascal used to mistake
-  for jobs. `include:` and `stages:` are ignored as well. The deprecated top-level `image`,
+  for jobs, like `include:` and `stages:`. The deprecated top-level `image`,
   `services`, `cache`, `before_script` and `after_script` now act like the same keys in `default:`.
 - Support `extends:`, `inherit:`, `!reference`, local files from `include:`, and files with a `spec:` header.
 - Support services given as a plain image name, services with several aliases (`alias: db,postgres`),
@@ -40,6 +40,12 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
 - `rascal clean` also removes the anonymous volumes of service containers, like the data volumes of
   postgres and redis, which used to pile up.
 - Job names like `2.6`, which YAML reads as numbers, work in `.rascal: jobs:`.
+- rascal's own messages, like `Starting container for ...` and image downloads, go to stderr, so a
+  command's stdout only has the command's output.
+- `rascal run` passes stdin to the command.
+- Support `entrypoint` for a job's image.
+- Warn about includes rascal cannot read.
+- Several commands can start the same environment at once.
 - Rewrite the README around setting up a project, working in it and tearing it down, with a
   configuration reference and troubleshooting. Improve the command line help.
 

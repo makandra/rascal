@@ -21,8 +21,8 @@ describe 'rascal clean' do
 
     result = run_rascal!('clean', 'job')
 
-    expect(result.stdout).not_to include('Stopping')
-    expect(result.stdout).to include('Removing container for app-job_service')
+    expect(result.stderr).not_to include('Stopping')
+    expect(result.stderr).to include('Removing container for app-job_service', 'Removing network rascal-app-job')
     expect(docker.commands).to include(match(/container rm --volumes/), match(/network rm/))
   end
 
@@ -31,15 +31,15 @@ describe 'rascal clean' do
 
     result = run_rascal!('clean', 'job')
 
-    expect(result.stdout).to include('Removing 1 leftover command container for app-job')
+    expect(result.stderr).to include('Removing 1 leftover command container for app-job')
     expect(docker.commands).to include("docker container rm --force #{docker.container_id('rascal-app-job-run-0123abcd')}")
   end
 
   it 'keeps volumes unless asked to remove them' do
     docker.volume_exists('rascal-app-job-cache')
 
-    expect(run_rascal!('clean', 'job').stdout).not_to include('Removing volume')
-    expect(run_rascal!('clean', 'job', '--volumes').stdout).to include('Removing volume rascal-app-job-cache')
+    expect(run_rascal!('clean', 'job').stderr).not_to include('Removing volume')
+    expect(run_rascal!('clean', 'job', '--volumes').stderr).to include('Removing volume rascal-app-job-cache')
   end
 
   it 'cleans all environments, including those whose image cannot be resolved' do
@@ -48,7 +48,7 @@ describe 'rascal clean' do
 
     result = run_rascal!('clean', '--all', '--volumes')
 
-    expect(result.stdout).to include('Removing container for app-job_service', 'Removing volume rascal-app-deploy-cache')
+    expect(result.stderr).to include('Removing container for app-job_service', 'Removing volume rascal-app-deploy-cache')
   end
 
   it 'complains about --all together with an environment name' do

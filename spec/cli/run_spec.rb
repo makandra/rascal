@@ -56,6 +56,52 @@ describe 'rascal run' do
     expect(result.stderr).to include('Log in with `docker login registry.example.com`, then try again.')
   end
 
+  it 'forwards stdin without a terminal, reports what it does on stderr, and keeps stdout for the command' do
+    gitlab_ci_config(<<~YAML)
+      job:
+        image: job-image:latest
+        services:
+          - name: redis:7
+            alias: redis
+    YAML
+
+    result = run_rascal!('run', 'job', '--', 'true')
+
+    expect(docker.commands.grep(/container run/).last).to match(/ -a STDOUT -a STDERR -a STDIN --interactive -w /)
+    expect(result.stderr).to include('Downloading image for app-job', 'Starting container for app-job_redis')
+    expect(result.stdout).to eq ''
+  end
+
+  it "overrides the image's entrypoint when the job sets one" do
+    gitlab_ci_config(<<~YAML)
+      job:
+        image:
+          name: job-image:latest
+          entrypoint: ['']
+    YAML
+
+    run_rascal!('run', 'job', '--', 'true')
+
+    expect(docker.commands.grep(/container run/).last).to include("--interactive --entrypoint  -w /repo ")
+  end
+
+  it 'warns about includes it cannot read' do
+    gitlab_ci_config(<<~YAML)
+      include:
+        - project: group/templates
+          file: services.yml
+      job:
+        image: job-image:latest
+    YAML
+
+    result = run_rascal!('run', 'job', '--', 'true')
+
+    expect(result.stderr).to include(
+      'Warning: rascal cannot read these includes, so config from them is missing: project: group/templates, file: services.yml. ' \
+      'If the job needs services or variables from them, set them in the `.rascal` block.'
+    )
+  end
+
   it 'warns about variables that reference undefined variables, and runs anyway' do
     gitlab_ci_config(<<~YAML)
       job:

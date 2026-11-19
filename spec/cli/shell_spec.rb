@@ -14,7 +14,7 @@ describe 'rascal shell' do
 
     result = run_rascal!('shell', 'job')
 
-    expect(result.stdout).to include("Downloading image for app-job\n")
+    expect(result.stderr).to include("Downloading image for app-job\n")
     expect(docker.commands).to include('docker pull job-image:latest')
     expect(docker.commands).not_to include('docker pull service-image:latest')
   end
@@ -56,7 +56,7 @@ describe 'rascal shell' do
       'docker container start 00000001',
       'docker container start 00000002',
     )
-    expect(result.stdout).to include("Starting container for app-job_service\nStarting container for app-job_registry.example.com-group-postgres\n")
+    expect(result.stderr).to include("Starting container for app-job_service\nStarting container for app-job_registry.example.com-group-postgres\n")
   end
 
   it "explains why it cannot start a job's environment" do
@@ -99,7 +99,7 @@ describe 'rascal shell' do
 
       result = run_rascal!('shell', 'job')
 
-      expect(result.stdout).to include('Removing container for app-job_service, its network no longer exists')
+      expect(result.stderr).to include('Removing container for app-job_service, its network no longer exists')
       expect(docker.commands).to include("docker container rm --volumes #{old_id}", match(/container create --name rascal-app-job_service/))
     end
 
@@ -108,7 +108,7 @@ describe 'rascal shell' do
 
       result = run_rascal!('shell', 'job')
 
-      expect(result.stdout).not_to include('its network no longer exists')
+      expect(result.stderr).not_to include('its network no longer exists')
       expect(docker.commands).not_to include(match(/container (rm|create)/))
     end
 
@@ -117,7 +117,7 @@ describe 'rascal shell' do
 
       result = run_rascal!('shell', 'job')
 
-      expect(result.stdout).not_to include('Starting container')
+      expect(result.stderr).not_to include('Starting container')
       expect(docker.commands).not_to include(match(/container (start|create|rm)/))
     end
 

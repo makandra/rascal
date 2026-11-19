@@ -61,7 +61,7 @@ module Rascal
         end
       end
 
-      desc 'clean ENVIRONMENT', "Remove an environment's services"
+      desc 'clean ENVIRONMENT | --all', 'Remove an environment'
       method_option :volumes, type: :boolean, default: false, desc: 'Also remove volumes, like caches'
       method_option :all, type: :boolean, default: false, desc: 'Clean all environments'
       def clean(environment_name = nil)
@@ -70,7 +70,7 @@ module Rascal
         end
       end
 
-      desc 'update ENVIRONMENT', "Pull an environment's latest images"
+      desc 'update ENVIRONMENT | --all', "Pull an environment's latest images"
       method_option :all, type: :boolean, default: false, desc: 'Update all environments'
       def update(environment_name = nil)
         handle_error do
@@ -78,7 +78,7 @@ module Rascal
         end
       end
 
-      class_option :config_file, aliases: ['-c'], default: '.', required: true, desc: 'path to configuration file or directory containing it'
+      class_option :config_file, aliases: ['-c'], default: '.', required: true, desc: 'The .gitlab-ci.yml to use, or its directory'
 
       private
 

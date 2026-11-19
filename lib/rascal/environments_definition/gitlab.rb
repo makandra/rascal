@@ -61,6 +61,8 @@ module Rascal
         @info = @file.to_h
         @repo_dir = config_path.parent
         @base_name = @repo_dir.basename
+        # Docker only allows some characters in names.
+        @docker_name = @base_name.to_s.gsub(/[^a-zA-Z0-9_.-]/, '_').sub(/\A[^a-zA-Z0-9]/, 'x\\0')
         # A .rascal.yml next to .gitlab-ci.yml extends the .rascal block, for settings
         # that should not be part of the project's CI config.
         @rascal_config = deep_merge(hash_or_empty(@info['.rascal']), local_rascal_config(config_path))
@@ -251,7 +253,7 @@ module Rascal
       def build_environment(job)
         config = job.config
         docker_repo_dir = config.get('repo_dir', '/repo')
-        full_name = "#{@base_name}-#{job.name}"
+        full_name = "#{@docker_name}-#{job.name.gsub(/[^a-zA-Z0-9_.-]/, '_')}"
         shared_volumes = [build_repo_volume(docker_repo_dir), build_builds_volume(full_name)]
         variables = GitlabVariables.new(predefined_variables(job, docker_repo_dir), *job.variable_layers)
         problems = job.problems.dup
@@ -259,6 +261,7 @@ module Rascal
         Environment.new(full_name,
           name: job.name,
           image: image_name(job, variables, problems),
+          entrypoint: entrypoint(job.config.get('image', nil)),
           volumes: [
             *shared_volumes,
             *build_volumes(full_name, config.get('volumes', {}))
@@ -268,10 +271,10 @@ module Rascal
           before_shell: config.get('before_shell', []),
           after_shell: config.get('after_shell', []),
           working_dir: docker_repo_dir,
-          ssh_agent: config.get('ssh_agent', false) == true,
+          ssh_agent: [true, 'true'].include?(config.get('ssh_agent', false)),
           services_timeout: config.get('services_timeout', Environment::DEFAULT_SERVICES_TIMEOUT),
           problems: problems.uniq,
-          warnings: warnings.uniq,
+          warnings: [*skipped_includes_warning, *warnings].uniq,
         )
       end
 
@@ -342,12 +345,29 @@ module Rascal
         end
       end
 
+      def entrypoint(image_config)
+        entrypoint = image_config['entrypoint'] if image_config.is_a?(Hash)
+        Array(entrypoint).collect(&:to_s) if entrypoint
+      end
+
+      def skipped_includes_warning
+        return [] if @file.skipped_includes.empty?
+
+        ["rascal cannot read these includes, so config from them is missing: #{skipped_includes_description}. " \
+         "If the job needs services or variables from them, set them in the `.rascal` block."]
+      end
+
+      def skipped_includes_description
+        @file.skipped_includes.collect do |entry|
+          entry.is_a?(Hash) ? entry.slice('project', 'file', 'remote', 'template', 'component', 'local').collect { |k, v| "#{k}: #{Array(v).join(', ')}" }.join(', ') : entry.to_s
+        end.join('; ')
+      end
+
       # Explains config that may be missing because rascal cannot read some includes.
       def skipped_includes_hint
         return '' if @file.skipped_includes.empty?
 
-        descriptions = @file.skipped_includes.collect { |entry| entry.is_a?(Hash) ? entry.to_a.collect { |k, v| "#{k}: #{v}" }.join(', ') : entry.to_s }
-        "It may come from an include rascal cannot read (#{descriptions.join('; ')}), since rascal only reads local includes. "
+        "It may come from an include rascal cannot read (#{skipped_includes_description}), since rascal only reads local includes. "
       end
 
       def undefined_variable_advice(name)
@@ -395,8 +415,9 @@ module Rascal
             aliases: aliases,
             image: image,
             volumes: volumes,
-            env_variables: resolve_variables(service_variables, problems, warnings, only: own_variables.keys.collect(&:to_s)),
+            env_variables: (service_env = resolve_variables(service_variables, problems, warnings, only: own_variables.keys.collect(&:to_s))),
             command: service_config['command'],
+            healthcheck_port: (service_env['HEALTHCHECK_TCP_PORT'] if own_variables.key?('HEALTHCHECK_TCP_PORT')),
           )
         end
       end

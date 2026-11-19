@@ -29,11 +29,12 @@ project already uses in CI, so an old project with Ruby 2.5 works next to a new 
 ```sh
 rascal run rspec -- bundle install                                   # set up
 rascal run rspec -- bundle exec rspec spec/models/user_spec.rb      # work
-rascal clean rspec --volumes                                         # tear down
+rascal clean --all --volumes                                         # tear down
 ```
 
-rascal is meant for people and for AI agents alike: `rascal run` needs no terminal, exits with the
-command's status, and explains what is wrong when something is missing.
+rascal is meant for people and for AI agents alike: `rascal run` needs no terminal, keeps the
+command's output separate from its own, exits with the command's status, and explains what is wrong
+when something is missing.
 
 
 ## Contents
@@ -75,17 +76,23 @@ When you run a command in an environment, rascal:
 
 1. pulls the job's image and the images of its services, if they are missing;
 2. starts the job's services on a Docker network, reachable under their aliases (like `db` or
-   `redis`), unless they are running already, and waits until they accept connections;
+   `redis`), unless they are running already. It waits until each service it started accepts
+   connections on one of its ports;
 3. starts a new container from the job's image, with the job's variables, and your project
    directory mounted at `/repo`;
-4. runs `before_shell` from the `.rascal` block, then your command, then `after_shell`;
-5. gives files the command created in your project back to you, since the container runs as root;
+4. runs a bash script in it: the `before_shell` commands from the `.rascal` block, your command,
+   then the `after_shell` commands;
+5. gives files in your project that belong to root back to you, since the container usually runs
+   as root;
 6. removes the container, and exits with your command's status.
 
-The services keep running between commands, so a database you set up once keeps its data. Each
-command gets a fresh container, though: changes outside your project directory and outside volumes
-are gone afterwards. That includes the container's home directory, so settings like
+**What stays between commands:** the services keep running, so a database you set up once keeps
+its data. Files in your project directory and in volumes stay too. Everything else in the job's
+container is gone after each command, including its home directory. So settings like
 `bundle config set` must go into the project (`bundle config set --local`) or into variables.
+
+**Services are reused as they are.** If you change a service's settings, or pull newer images with
+`rascal update`, run `rascal clean <job>` so the next command starts the services anew.
 
 rascal does not run the job's `script`, `before_script` or `cache`. These are written for one-off CI
 jobs, so rascal leaves setup to you, or to `before_shell`.
@@ -102,7 +109,8 @@ rspec
 ```
 
 Pick the job that runs the tests, usually called `rspec`, `test` or similar. Its image has the
-project's language versions and tools, and its services are what the tests need.
+project's language versions and tools, and its services are what the tests need. The list includes
+jobs rascal cannot start, like deploy jobs.
 
 ### 2. Run it once
 
@@ -117,6 +125,9 @@ Starting container for myapp-rspec_redis
 If rascal cannot start the environment, it says why and what to do. See
 [Troubleshooting](#troubleshooting).
 
+If the project already has a `.rascal` block in `.gitlab-ci.yml`, look at it first. Its
+`before_shell` commands run before each of your commands, and may already install dependencies.
+
 ### 3. Install dependencies and set up the database
 
 Look at the job's `before_script` and `script` in `.gitlab-ci.yml` to see how CI does it, and run
@@ -127,10 +138,13 @@ rascal run rspec -- bundle install
 rascal run rspec -- bin/rails db:create db:schema:load
 ```
 
+Leave out steps that only make sense on a CI runner, like ones that use `CI_JOB_TOKEN` to fetch
+private repositories. Use `ssh_agent` instead (see below).
+
 Gems stay installed between commands if the job sets `BUNDLE_PATH` to a directory in the project,
 as most CI configs do to cache gems. Otherwise, set it in the `.rascal` block (see below).
 
-### 4. Make it repeatable with a .rascal block (optional)
+### 4. Make it repeatable (optional)
 
 Commands in `before_shell` run before every command, so the environment is always ready, even after
 a teardown or when someone else uses it. Add a `.rascal` block to `.gitlab-ci.yml`, which GitLab
@@ -143,8 +157,14 @@ ignores:
     - bin/rails db:create db:migrate
 ```
 
-`before_shell` runs before every command, so keep it fast. The example above takes a few seconds,
-mostly to boot Rails.
+All commands run in one bash script, separated by `;`:
+
+- A failing `before_shell` command does not stop your command, and does not change the exit status.
+- Its output appears with your command's output on every run. Redirect it, like `> /dev/null`
+  above, to keep your command's output clean.
+- `cd` or `export` in `before_shell` apply to your command too.
+- It runs before every command, so keep it fast. The example above takes a few seconds, mostly to
+  boot Rails.
 
 If you do not want to change the project's CI config, put the same settings into a `.rascal.yml`
 next to `.gitlab-ci.yml`, without the `.rascal:` key, and keep it out of Git:
@@ -154,8 +174,11 @@ cat > .rascal.yml <<'YAML'
 before_shell:
   - bundle check > /dev/null || bundle install
 YAML
-echo .rascal.yml >> .git/info/exclude
+echo .rascal.yml >> "$(git rev-parse --git-path info/exclude)"
 ```
+
+`.rascal.yml` overrides the `.rascal` block: its lists, like `before_shell`, replace the block's,
+and its hashes, like `variables`, are merged into the block's.
 
 ### Settings that need to persist
 
@@ -177,17 +200,24 @@ your SSH agent:
 ssh_agent: true
 ```
 
-rascal then mounts the agent from `SSH_AUTH_SOCK` and your `~/.ssh/known_hosts` into the container.
+rascal then mounts your SSH agent and your `~/.ssh/known_hosts` into the container. It does not
+mount `~/.ssh/config`, so host aliases from there do not work.
+
 **While a command runs, any code in the container can use all keys in the agent**, including
-install scripts of dependencies. Consider a separate agent that only holds a key with read access to
-your Git server, and point `SSH_AUTH_SOCK` to it when you run rascal:
+install scripts of dependencies. With Docker Engine on Linux, you can start a separate agent that
+only holds a key with read access to your Git server, and point rascal to it:
 
 ```sh
-eval $(ssh-agent -a /tmp/git-read-agent.sock) && ssh-add ~/.ssh/git_read_key
+ssh-agent -a /tmp/git-read-agent.sock > /dev/null
+SSH_AUTH_SOCK=/tmp/git-read-agent.sock ssh-add ~/.ssh/git_read_key
 SSH_AUTH_SOCK=/tmp/git-read-agent.sock rascal run rspec -- bundle install
 ```
 
-The container needs an SSH client and must run as root (or as your user), since the agent's socket
+Docker Desktop (on macOS, and on Linux) always provides the agent of your desktop session, with all
+its keys, and ignores `SSH_AUTH_SOCK`. If you are an AI agent and no separate agent with a limited
+key is available, ask your user before you enable `ssh_agent`.
+
+The container needs an SSH client, and must run as root (or as your user), since the agent's socket
 belongs to you.
 
 ### Variables rascal cannot see
@@ -222,78 +252,122 @@ To use shell syntax like `&&`, `|` or `cd`, run it through bash:
 rascal run rspec -- bash -c 'bin/rails db:migrate && bundle exec rspec spec/models'
 ```
 
-`rascal run` exits with the command's exit status, or with 128 plus the signal number if it was
-killed, so scripts and agents can rely on it. If you stop rascal, for example with a timeout, it
-removes the command's container. Files the command created in the project may then still belong to
-root, until the next command gives them back. Its output is the command's output, plus a few lines
-from rascal when it downloads images or starts services.
+What to expect from `rascal run`:
+
+- **Output:** stdout is your command's stdout (plus the output of `before_shell` and `after_shell`).
+  rascal's own messages, like `Starting container for ...`, image downloads and warnings, go to
+  stderr.
+- **Input:** stdin is passed to the command, so `rascal run rspec -- psql < dump.sql` works.
+- **Exit status:** your command's, or 128 plus the signal number if it was killed. If rascal itself
+  fails, for example for an unknown environment, it exits with 1 and explains why on stderr. If Docker
+  cannot start the container, for example because the image has no bash, the status is 125 to 127.
+- **Stopping:** if you stop rascal, for example with a timeout, it removes the command's container.
+  Files the command created in the project may then still belong to root, until the next command
+  gives them back.
+- **Environment variables** from your shell are not passed into the container. Use
+  `rascal run rspec -- env FOO=bar bin/rails runner ...` or the `.rascal` block.
+- **Parallel commands** in the same environment work, like several test runs at once. Each gets its
+  own container, and they share the services.
 
 For an interactive shell, like for a Rails console or a debugger, use `rascal shell rspec`. It runs
 bash with `before_shell` and `after_shell` around it, just like a command.
 
 Files you edit on your machine are visible in the container immediately. Files the container
-creates, like `Gemfile.lock` changes or downloaded gems, belong to you afterwards.
+creates, like `Gemfile.lock` changes or installed gems, belong to you afterwards (on Linux; Docker
+Desktop handles this itself).
 
-The environment is the one from CI, so tests that need a browser, a display or a particular service
-work if they work in CI. Things that only exist on CI runners, like the job's artifacts or caches from
-other jobs, do not.
+The container runs the job's image, but not the job's `before_script`, so tools that CI starts or
+installs there, like a virtual display for browser tests, are missing unless you start them yourself.
+rascal does not publish ports to your machine, so you cannot open a server running in the container
+in your browser.
 
 
 ## Tearing down
 
 ```console
-$ rascal clean rspec --volumes
+$ rascal clean --all --volumes
 Stopping container for myapp-rspec_db
 Removing container for myapp-rspec_db
+Stopping container for myapp-rspec_redis
+Removing container for myapp-rspec_redis
+Removing network rascal-myapp-rspec
 Removing volume rascal-myapp-rspec-builds
 ```
 
-`rascal clean <job>` stops and removes the job's service containers, including their data, and
-its Docker network. With `--volumes`, it also removes the job's named volumes, like caches from the
-`.rascal` block. `rascal clean --all` does this for every environment of the project.
+`rascal clean <job>` stops and removes the job's service containers, including their data, and the
+job's Docker network. With `--volumes`, it also removes the job's named volumes: the volume for
+`/builds`, and the volumes from the `.rascal` block. `--all` does this for every environment of the
+project.
 
 Files in your project directory stay, like gems installed into it. Remove them like any other file.
+
+To check that nothing is left, list what Docker has for the project (`myapp` being the name of the
+project directory):
+
+```sh
+docker ps --all --filter name=rascal-myapp-
+docker network ls --filter name=rascal-myapp-
+docker volume ls --filter name=rascal-myapp-
+```
 
 
 ## Commands
 
 All commands take the job's name as the environment, and look for `.gitlab-ci.yml` in the current
-directory. Use `--config-file PATH` (or `-c PATH`) to point to another file or directory.
+directory.
 
 | Command | What it does |
 |---|---|
 | `rascal run <job> -- <command> [args...]` | Runs a command, without a terminal, and exits with its status. |
-| `rascal shell <job>` | Opens an interactive bash. |
-| `rascal environments` | Lists the jobs rascal can start environments for, one per line. |
+| `rascal shell <job>` | Opens an interactive bash. Needs a terminal. |
+| `rascal environments` | Lists the project's jobs, one per line, including ones rascal cannot start. |
 | `rascal clean <job> [--volumes]` | Stops and removes the job's services and network, and with `--volumes` its volumes. |
 | `rascal clean --all [--volumes]` | The same for all environments of the project. |
-| `rascal update <job>` | Pulls the latest versions of the job's images. |
+| `rascal update <job>` | Pulls the latest versions of the job's images. Run `rascal clean <job>` afterwards to restart services with them. |
 | `rascal update --all` | The same for all environments. Skips jobs whose images rascal cannot resolve. |
 | `rascal --version` | Prints rascal's version. |
 
-Docker resources are named after the project directory and the job, like `rascal-myapp-rspec` for
-the network and `rascal-myapp-rspec_db` for a service. Two checkouts of the same project in
-directories with different names get separate environments.
+With `--config-file PATH` (or `-c PATH`), rascal uses another `.gitlab-ci.yml`, or the one in another
+directory. The directory of that file counts as the project directory: rascal mounts it, and looks
+for `.rascal.yml` and local includes there.
+
+### Docker resources
+
+rascal names everything after the project directory and the job:
+
+| Resource | Name |
+|---|---|
+| Network | `rascal-myapp-rspec` |
+| Service container | `rascal-myapp-rspec_db`, after the service's first alias |
+| Container of a command | `rascal-myapp-rspec-run-` and a random suffix, removed after the command |
+| Volume for `/builds` | `rascal-myapp-rspec-builds` |
+| Volume from the `.rascal` block | `rascal-myapp-rspec-cache`, after its name |
+
+Only the name of the directory counts, not its path. **Two project directories with the same name
+share their environments**, including databases. Give each checkout its own directory name, like
+`myapp-feature-x`.
 
 
 ## Configuration
 
 rascal takes its settings from the `.rascal` block in `.gitlab-ci.yml`, and from a `.rascal.yml`
-next to it, which overrides the block. Both use the same keys:
+next to it. Both use the same keys:
 
 ```yaml
 .rascal:
-  # Commands to run before and after every command, and around `rascal shell`.
+  # Commands to run in the same bash script before and after every command, and around
+  # `rascal shell`. Failures do not stop the command.
   before_shell:
     - bundle check > /dev/null || bundle install
   after_shell: []
 
   # Variables for all jobs. They override the jobs' variables, and may reference them:
-  # RUBYOPT: $RUBYOPT -W:deprecated extends the job's RUBYOPT.
+  # RUBYOPT: $RUBYOPT -W:deprecated extends the job's RUBYOPT. Only variables from the
+  # CI config count, not those the image sets, so do not extend PATH this way.
   variables:
     BUNDLE_WITHOUT: deploy
 
-  # Named Docker volumes for all jobs, as name: path in the container. They keep their
+  # Docker volumes as name: path in the container. Each job gets its own, which keep their
   # content between commands, until `rascal clean --volumes`.
   volumes:
     cache: /cache
@@ -304,11 +378,11 @@ next to it, which overrides the block. Both use the same keys:
   # Give the container access to your SSH agent. Default: false
   ssh_agent: false
 
-  # How many seconds to wait for services to accept connections. Default: 30
+  # How many seconds to wait for each service to accept connections. Default: 30
   services_timeout: 30
 
-  # Settings for single jobs. Besides the keys above, you can override any
-  # key of the job, like `image` or `services`.
+  # Settings for single jobs. Besides the keys above, you can override any key of the job,
+  # like `image` or `services`.
   jobs:
     rspec:
       variables:
@@ -319,7 +393,8 @@ next to it, which overrides the block. Both use the same keys:
       name: new-name      # use another name for the environment
 ```
 
-Keys in the `.rascal` block replace the job's keys of the same name. Hashes, like `variables`, are merged.
+Keys in the `.rascal` block replace the job's keys of the same name, for every job. Hashes, like
+`variables`, are merged. Use `jobs:` to change a single job.
 
 
 ## What rascal reads from .gitlab-ci.yml
@@ -328,33 +403,34 @@ Every top-level key is a job, except for GitLab's global keywords (`default`, `i
 `variables`, `workflow`, and the deprecated `image`, `services`, `cache`, `before_script` and
 `after_script`) and keys starting with a dot.
 
-For each job, rascal combines its config like GitLab does, then applies the `.rascal` block on top:
+For each job, rascal combines its config like GitLab does, then applies rascal's settings on top:
 
 1. `default:` (and the deprecated top-level keys), limited by the job's `inherit: default:`
 2. the templates in the job's `extends:`, merged in order
 3. the job itself. Each key from steps 2 and 3 replaces the same key from `default:` as a whole.
-4. the `.rascal` block, extended by `.rascal.yml`
+4. the `.rascal` block, overridden by `.rascal.yml`
 5. the job's entry under `jobs:` in the `.rascal` block or `.rascal.yml`
 
-From the combined config, rascal uses `image`, `services` and `variables`, and ignores everything
-else.
+From the combined config, rascal uses `image` (its name and `entrypoint`), `services` and
+`variables`. It ignores everything else, like `script`, `rules` or `cache`.
 
 rascal reads local files from `include:`, including wildcards and nested includes, and resolves
-`!reference` tags in the keys it uses. It cannot read includes from other projects, URLs, templates or
-components, and it cannot evaluate `rules:` on includes, so it includes local files regardless (or
-skips them if they are missing). If a job misses config because of that, rascal says so, and you can
-add the missing config in the `.rascal` block. A file may start with a header document with `spec:`,
-but rascal does not interpolate `$[[ inputs ]]`.
+`!reference` tags. It cannot read includes from other projects, URLs, templates or components, and
+warns about them, since config from them is missing. It cannot evaluate `rules:` on includes either,
+so it includes local files regardless (or skips them if they are missing). A file may start with a
+header document with `spec:`, but rascal does not interpolate `$[[ inputs ]]`.
 
 ### Services
 
 Services may be given as a plain image name (`- postgres:16`) or with `name:`, `alias:` (one or
 more, separated by commas or spaces), `command:` and `variables:`. Without an `alias`, a service is
 reachable under the host names GitLab derives from its image, like `postgres` for `postgres:16`.
+Your project directory is mounted into the services too.
 
 After starting services, rascal waits until each accepts connections on one of the TCP ports its
-image exposes, or on `HEALTHCHECK_TCP_PORT` from the service's variables, for up to
-`services_timeout` seconds. Then it runs the command anyway.
+image exposes, or on `HEALTHCHECK_TCP_PORT` from the service's own variables, for up to
+`services_timeout` seconds. Then it runs the command anyway. Services that were already running,
+or that expose no port, are not waited for.
 
 ### Variables
 
@@ -365,17 +441,20 @@ Variables are resolved like in a GitLab job:
   referencing their own name.
 - Values, image names and service names may reference variables as `$NAME`, `${NAME}` or `%NAME%`.
   `$$` stands for a literal `$`. A variable defined as `{ value: ..., expand: false }` is used as is.
+- References only see variables from the CI config and the ones rascal predefines, not variables the
+  image sets.
 - rascal predefines `CI=true`, `GITLAB_CI=true`, `CI_JOB_NAME`, `CI_BUILDS_DIR` (`/builds`),
   `CI_PROJECT_DIR` (`/repo`, or your `repo_dir`) and `CI_PROJECT_NAME` (the name of your project
   directory). Tools may behave differently when `CI` is set. For example, `pnpm install` refuses to
   change the lockfile. Override them in the `.rascal` block if needed.
-- An undefined variable in a variable's value becomes an empty string, like in GitLab, and rascal
-  warns about it. An undefined variable in an image name keeps rascal from starting the job.
+- An undefined `$NAME` in a variable's value becomes an empty string, like in GitLab, and rascal
+  warns about it. An undefined `%NAME%` stays as it is. An undefined variable in an image name keeps
+  rascal from starting the job.
 
 
 ## Troubleshooting
 
-rascal explains most problems itself. These are the common ones:
+rascal explains most problems itself. These are the messages you may see, and what to do.
 
 #### `Could not find a .gitlab-ci.yml in ...`
 
@@ -385,25 +464,32 @@ Run rascal in the project's root directory, or pass `--config-file`.
 
 Use one of the listed job names. Jobs starting with a dot are templates, not environments.
 
-#### `Job '...' has no image.`
+#### `has no image`
 
 The job gets its image from somewhere rascal cannot see, often an include from another project.
 Set it in the `.rascal` block: `jobs: <job>: image: ...`.
 
-#### `The image of job '...' uses the undefined variable ...`
+#### `uses the undefined variable`
 
-Define the variable under `variables:` in the `.rascal` block, or set the job's image there.
+The image of the job or of a service references a variable rascal does not know, often one GitLab
+sets, like `CI_REGISTRY_IMAGE`. Define it under `variables:` in the `.rascal` block, or set the image
+there.
 
-#### `... unknown keys in extends` or `!reference ... could not be found`
+#### ``unknown keys in `extends` `` or `could not be found`
 
-The template comes from a file rascal cannot read. Set the config the job needs in the `.rascal`
-block, or hide the job with `jobs: <job>: hide: true` if you do not need it.
+A template or `!reference` comes from a file rascal cannot read. Set the config the job needs in the
+`.rascal` block, or hide the job with `jobs: <job>: hide: true` if you do not need it.
 
-#### `... uses spec: inputs`
+#### `rascal cannot read these includes`
+
+The job may lack services or variables from includes of other projects, URLs or templates. If it
+does, set them in the `.rascal` block. Otherwise, ignore the warning.
+
+#### ``uses `spec: inputs:` ``
 
 rascal does not interpolate `$[[ inputs.name ]]`. Set the value in the `.rascal` block.
 
-#### `Warning: Variable ... references ..., which is undefined`
+#### `which is undefined and expanded to an empty string`
 
 Harmless if the command does not need the variable. Otherwise define it in the `.rascal` block.
 
@@ -411,42 +497,48 @@ Harmless if the command does not need the variable. Otherwise define it in the `
 
 Run the `docker login` command from the message.
 
-#### `Cannot connect to the Docker daemon`
+#### `Cannot connect to the Docker daemon` or `failed to connect to the docker API`
 
 Start Docker.
 
 #### Gems or packages are missing after they were installed
 
-They were installed outside the project directory, in the container that is gone now. Set
+They were installed outside the project directory, in a container that is gone now. Set
 `BUNDLE_PATH` (or the equivalent for your package manager) to a directory in the project, as a
 variable in the `.rascal` block. The same goes for settings made with `bundle config set` without
 `--local`.
 
-#### `rascal: Service ... does not accept connections ... continuing anyway`
+#### `does not accept connections ... continuing anyway`
 
 The service needs longer to start, or listens on a port its image does not declare. Set
 `services_timeout` in the `.rascal` block, or `HEALTHCHECK_TCP_PORT` in the service's variables.
 
+#### `Service ... is not running anymore`
+
+The service stopped, usually because of missing settings, like a database password. Its logs say
+why. Fix its variables in the `.rascal` block, then run `rascal clean <job>`.
+
 #### `Host key verification failed` or `Permission denied (publickey)` when fetching dependencies
 
-Enable `ssh_agent: true`, and make sure your agent holds a key for the Git server (`ssh-add -l`)
-and that `~/.ssh/known_hosts` knows the server.
+Enable `ssh_agent: true` (see [Private dependencies over SSH](#private-dependencies-over-ssh)), and
+make sure your agent holds a key for the Git server (`ssh-add -l`) and that `~/.ssh/known_hosts`
+knows the server.
 
-#### `bash: not found` or `executable file not found`
+#### `"bash": executable file not found`
 
-The job's image has no bash. rascal cannot use it. Use another job, or set another image for the
+The job's image has no bash, so rascal cannot use it. Use another job, or set another image for the
 job in the `.rascal` block.
 
-#### The database or other service state is broken
+#### The database or another service is in a bad state
 
 Run `rascal clean <job>` to remove the services and their data. The next command starts them
 fresh.
 
-#### Containers or volumes left over from a project directory you deleted
+#### Leftovers from a project directory you deleted
 
-Find them with `docker ps --all --filter name=rascal-` and `docker volume ls --filter name=rascal-`,
-and remove them with `docker rm --force` and `docker volume rm`.
-
+Find them with `docker ps --all --filter name=rascal-`, `docker network ls --filter name=rascal-`
+and `docker volume ls --filter name=rascal-`. Remove them with `docker rm --force`,
+`docker network rm` and `docker volume rm`.
 
 
 ## Working on rascal
