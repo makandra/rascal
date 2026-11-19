@@ -78,13 +78,28 @@ module IntegrationHelpers
     ].map(&:strip).reject(&:empty?)
   end
 
+  # Removes the project directory and everything rascal created in Docker for it.
+  # Warns instead of failing, so a broken cleanup does not hide the actual test result.
   def remove_project
     return unless project_dir && File.directory?(project_dir)
 
-    rascal('clean', '--all', '--volumes')
+    result = rascal('clean', '--all', '--volumes')
+    warn "Integration spec cleanup: `rascal clean` failed:\n#{result.stderr}" unless result.success?
+    remove_leftover_docker_resources
     # Containers may have created files the current user cannot delete.
     docker('run', '--rm', '-v', "#{project_dir}:/project", JOB_IMAGE, 'sh', '-c', 'rm -rf /project/* /project/.[!.]*')
     FileUtils.rm_rf(project_dir)
+    warn "Integration spec cleanup: could not remove #{project_dir}" if File.exist?(project_dir)
+  end
+
+  def remove_leftover_docker_resources
+    leftovers = docker_resources
+    return if leftovers.empty?
+
+    warn "Integration spec cleanup: removing leftovers #{leftovers.join(', ')}"
+    docker('rm', '--force', '--volumes', *leftovers)
+    docker('network', 'rm', *leftovers)
+    docker('volume', 'rm', *leftovers)
   end
 end
 

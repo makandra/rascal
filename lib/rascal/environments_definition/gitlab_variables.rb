@@ -2,10 +2,10 @@ module Rascal
   module EnvironmentsDefinition
     # Resolves CI variables the way a GitLab job sees them:
     #
-    # - Later definitions override earlier ones.
+    # - Definitions come in layers. Later layers override earlier ones.
     # - A value may reference other variables as `$NAME`, `${NAME}` or `%NAME%`.
-    # - A value that references its own name gets the earlier definition of that name,
-    #   so a job can extend a global variable with `PATH: $PATH:/more`.
+    # - A value that references its own name gets the definition from the layer below,
+    #   so the .rascal block can extend a job's variable with `PATH: $PATH:/more`.
     # - `$NAME` and `${NAME}` expand to an empty string if NAME is undefined.
     #   `%NAME%` stays as it is, so strings like `%Y%m%d` survive.
     # - `$$` stands for a literal `$`.
@@ -21,14 +21,14 @@ module Rascal
 
       Definition = Struct.new(:value, :expand)
 
-      # Takes hashes of variable definitions, from the earliest to the latest.
-      def initialize(*definitions)
-        # For each name, all its definitions from earliest to latest.
+      # Takes layers of variable definitions as hashes, from the lowest to the highest priority.
+      def initialize(*layers)
+        # For each name, all its definitions from the lowest to the highest layer.
         @definitions = Hash.new { |hash, name| hash[name] = [] }
-        definitions.each { |definition| add(definition) }
+        layers.each { |layer| add(layer) }
       end
 
-      # Returns a new instance with more definitions on top.
+      # Returns a new instance with another layer of definitions on top.
       def merge(definitions)
         merged = self.class.new
         @definitions.each { |name, layers| merged.layers(name).concat(layers) }
@@ -39,6 +39,16 @@ module Rascal
       # All variables, with their references expanded.
       def to_h
         @definitions.keys.to_h { |name| [name, resolve(name)] }
+      end
+
+      # The variables whose values reference undefined variables, as a hash
+      # from each variable's name to the names of the undefined ones.
+      def undefined_references
+        @definitions.keys.each_with_object({}) do |name, result|
+          undefined = []
+          resolve(name) { |undefined_name| undefined << undefined_name }
+          result[name] = undefined.uniq if undefined.any?
+        end
       end
 
       # Expands variable references in the given string. Yields the name of each
@@ -70,7 +80,7 @@ module Rascal
       end
 
       # Resolves the given layer of a variable, the latest one by default.
-      def resolve(name, layer = @definitions[name].size - 1, visiting = [])
+      def resolve(name, layer = @definitions[name].size - 1, visiting = [], &on_undefined)
         definition = @definitions[name][layer]
         if !definition.expand
           definition.value
@@ -78,7 +88,7 @@ module Rascal
           circle = [*visiting.drop_while { |entry| entry != [name, layer] }, [name, layer]].collect(&:first)
           raise Error, "The variables #{circle.join(' -> ')} reference each other in a circle. GitLab rejects this as well."
         else
-          expand_with(definition.value, [name, layer], [*visiting, [name, layer]])
+          expand_with(definition.value, [name, layer], [*visiting, [name, layer]], &on_undefined)
         end
       end
 
@@ -94,7 +104,7 @@ module Rascal
             name = match[:name] || match[:percent_name]
             layer = referenced_layer(name, current)
             if layer
-              resolve(name, layer, visiting)
+              resolve(name, layer, visiting, &on_undefined)
             elsif match[:name]
               on_undefined&.call(name)
               ''
@@ -110,7 +120,7 @@ module Rascal
         return unless @definitions.key?(name)
 
         if current && current.first == name
-          # A variable referencing itself means its earlier definition.
+          # A variable referencing itself means its definition in a lower layer.
           current.last.positive? ? current.last - 1 : nil
         else
           @definitions[name].size - 1

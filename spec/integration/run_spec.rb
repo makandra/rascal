@@ -2,11 +2,10 @@
 # Only covers key paths and what mocked tests cannot show. Details belong in unit specs.
 describe 'rascal run' do
 
-  def create_job_project(job_config = '')
+  def create_job_project
     create_project(<<~YAML)
       job:
         image: #{IntegrationHelpers::JOB_IMAGE}
-      #{job_config.gsub(/^/, '  ')}
     YAML
   end
 
@@ -115,10 +114,14 @@ describe 'rascal run' do
         "rascal-#{project_name}-job-builds",
         "rascal-#{project_name}-job-cache",
       )
+      # The redis image declares a volume for its data, which Docker creates without a name.
+      anonymous_volumes = docker('container', 'inspect', '--format', '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}', "rascal-#{project_name}-job_redis").split
+      expect(anonymous_volumes).not_to be_empty
 
       rascal!('clean', '--all', '--volumes')
 
       expect(docker_resources).to eq []
+      expect(docker('volume', 'ls', '--quiet').split & anonymous_volumes).to eq []
     end
 
   end

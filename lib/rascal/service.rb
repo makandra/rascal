@@ -1,14 +1,18 @@
 module Rascal
   class Service
-    attr_reader :name, :container, :alias, :env_variables, :command
+    attr_reader :name, :container, :aliases, :env_variables, :command
 
-    def initialize(name, env_variables: {}, image:, alias_name:, volumes: [], command: nil)
+    def initialize(name, env_variables: {}, image:, aliases:, volumes: [], command: nil)
       @name = name
       @container = Docker::Container.new(name, image)
-      @alias = alias_name
+      @aliases = aliases
       @volumes = volumes
       @env_variables = env_variables
       @command = [*command]
+    end
+
+    def alias
+      @aliases.first
     end
 
     def download_missing
@@ -21,7 +25,7 @@ module Rascal
         if (container_id = @container.id)
           network.disconnect(container_id)
         end
-        @container.start(network: network, network_alias: @alias, volumes: @volumes, env: @env_variables, command: @command)
+        @container.start(network: network, network_aliases: @aliases, volumes: @volumes, env: @env_variables, command: @command)
       end
     end
 

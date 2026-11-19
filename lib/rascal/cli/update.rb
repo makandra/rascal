@@ -16,6 +16,11 @@ module Rascal
       def run
         images = []
         each_environment(@environment_name) do |environment|
+          if @environment_name == :all && environment.problems.any?
+            # Typically a job that does not run tests, like a deploy job using $CI_REGISTRY_IMAGE.
+            IOHelper.stderr.puts("Skipping #{environment.name}: #{environment.problems.join(' ')}")
+            next
+          end
           images += environment.update(skip: images)
         end
       end

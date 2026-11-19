@@ -14,12 +14,3 @@ guard :rspec, cmd: 'bundle exec rspec', notification: false, failed_mode: :focus
   ruby = dsl.ruby
   dsl.watch_spec_files_for(ruby.lib_files)
 end
-
-guard 'cucumber', all_on_start: false, all_after_pass: false, notification: false do
-  watch(%r{^features/.+\.feature$})
-  watch(%r{^features/support/.+$})          { "features" }
-
-  watch(%r{^features/step_definitions/(.+)_steps\.rb$}) do |m|
-    Dir[File.join("**/#{m[1]}.feature")][0] || "features"
-  end
-end

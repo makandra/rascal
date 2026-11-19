@@ -44,11 +44,13 @@ module Rascal
           expect(environment.container.image).to eq 'job-image:latest'
         end
 
-        it 'complains about a job without an image' do
-          expect { from_config(<<~YAML, 'job') }.to raise_error(Rascal::Error, "Job 'job' has no image. Set `image:` in the job, in `default:`, or in the `.rascal` block.")
+        it 'reports a job without an image as a problem' do
+          environment = from_config(<<~YAML, 'job')
             job:
               script: rake
           YAML
+
+          expect(environment.problems).to eq ["Job 'job' has no image. Set `image:` in the job, in `default:`, or in the `.rascal` block (`.rascal: jobs: job: image:`)."]
         end
 
         it 'adds services' do
@@ -189,6 +191,155 @@ module Rascal
 
           expect(environment.container.image).to eq 'global-image:latest'
           expect(environment.services.collect(&:alias)).to eq ['global-service']
+        end
+
+        describe 'services' do
+
+          it 'accepts services given as a plain image name, with the alias GitLab derives from it' do
+            environment = from_config(<<~YAML, 'job')
+              job:
+                image: job-image:latest
+                services:
+                  - postgres:15
+                  - registry.example.com/group/redis:7@sha256:abc
+            YAML
+
+            expect(environment.services.collect { |s| [s.container.image, s.aliases] }).to eq [
+              ['postgres:15', ['postgres']],
+              ['registry.example.com/group/redis:7@sha256:abc', ['registry.example.com-group-redis', 'registry.example.com__group__redis']],
+            ]
+            expect(environment.services.collect(&:name)).to eq ['repo-job_postgres', 'repo-job_registry.example.com-group-redis']
+          end
+
+          it 'derives the alias from the image of a service without one' do
+            environment = from_config(<<~YAML, 'job')
+              job:
+                image: job-image:latest
+                services:
+                  - name: mariadb:10.6
+            YAML
+
+            expect(environment.services.first.aliases).to eq ['mariadb']
+          end
+
+          it 'accepts an empty services key' do
+            environment = from_config(<<~YAML, 'job')
+              job:
+                image: job-image:latest
+                services:
+            YAML
+
+            expect(environment.services).to eq []
+          end
+
+        end
+
+        describe 'extends' do
+
+          it 'merges the templates a job extends, like GitLab' do
+            environment = from_config(<<~YAML, 'job')
+              .base:
+                image: base-image:latest
+                variables:
+                  A: base
+                  B: base
+                services:
+                  - name: postgres:15
+                    alias: db
+              .more:
+                extends: .base
+                variables:
+                  B: more
+                  C: more
+              job:
+                extends: .more
+                variables:
+                  C: job
+            YAML
+
+            expect(environment.container.image).to eq 'base-image:latest'
+            expect(environment.services.collect(&:alias)).to eq ['db']
+            expect(environment.env_variables).to include('A' => 'base', 'B' => 'more', 'C' => 'job')
+          end
+
+          it 'applies several templates in order, and replaces lists instead of merging them' do
+            environment = from_config(<<~YAML, 'job')
+              .postgres:
+                services:
+                  - name: postgres:15
+                    alias: db
+              .redis:
+                image: redis-image:latest
+                services:
+                  - name: redis:7
+                    alias: redis
+              job:
+                extends: [.postgres, .redis]
+            YAML
+
+            expect(environment.container.image).to eq 'redis-image:latest'
+            expect(environment.services.collect(&:alias)).to eq ['redis']
+          end
+
+          it 'complains about circular and unknown templates, like GitLab' do
+            expect { definition(<<~YAML).available_environment_names }.to raise_error(Rascal::Error, 'job: circular dependency detected in `extends`')
+              .a:
+                extends: job
+              job:
+                extends: .a
+            YAML
+
+            expect { definition(<<~YAML).available_environment_names }.to raise_error(Rascal::Error, 'job: unknown keys in `extends` (.missing)')
+              job:
+                extends: .missing
+            YAML
+          end
+
+        end
+
+        describe 'inherit' do
+
+          it 'lets a job skip all or some keys of the default block' do
+            yaml = <<~YAML
+              default:
+                image: default-image:latest
+                services:
+                  - name: postgres:15
+                    alias: db
+              none:
+                image: job-image:latest
+                inherit:
+                  default: false
+              some:
+                inherit:
+                  default: [image]
+            YAML
+
+            expect(from_config(yaml, 'none').services).to eq []
+            expect(from_config(yaml, 'some').container.image).to eq 'default-image:latest'
+            expect(from_config(yaml, 'some').services).to eq []
+          end
+
+          it 'lets a job skip all or some global variables' do
+            yaml = <<~YAML
+              variables:
+                A: a
+                B: b
+              none:
+                image: job-image:latest
+                inherit:
+                  variables: false
+              some:
+                image: job-image:latest
+                inherit:
+                  variables: [B]
+            YAML
+
+            expect(from_config(yaml, 'none').env_variables.keys).not_to include('A', 'B')
+            expect(from_config(yaml, 'some').env_variables).to include('B' => 'b')
+            expect(from_config(yaml, 'some').env_variables.keys).not_to include('A')
+          end
+
         end
 
         describe 'precedence' do
@@ -397,21 +548,108 @@ module Rascal
             expect(service.env_variables).to include('PGDATA' => '/builds/pg')
           end
 
-          it 'complains about undefined variables in the image' do
-            expect { from_config(<<~YAML, 'job') }.to raise_error(Rascal::Error, "The image of job 'job' (app:$IMAGE_TAG) uses the undefined variable IMAGE_TAG. Define IMAGE_TAG under `variables:`, or set the image in the `.rascal` block.")
+          it 'reports undefined variables in the image as a problem' do
+            environment = from_config(<<~YAML, 'job')
               job:
-                image: app:$IMAGE_TAG
+                image: $CI_REGISTRY_IMAGE/test:latest
             YAML
+
+            expect(environment.problems).to eq [
+              "The image of job 'job' ($CI_REGISTRY_IMAGE/test:latest) uses the undefined variable CI_REGISTRY_IMAGE. " \
+              "It is probably set by GitLab or in the project's CI/CD settings, which rascal cannot see. " \
+              "Define it for rascal under `variables:` in the `.rascal` block."
+            ]
           end
 
-          it 'complains about undefined variables in service images' do
-            expect { from_config(<<~YAML, 'job') }.to raise_error(Rascal::Error, /The service postgres:\$PG_VERSION of job 'job' uses the undefined variable PG_VERSION/)
+          it 'reports undefined variables in service images as a problem' do
+            environment = from_config(<<~YAML, 'job')
               job:
                 image: job-image:latest
                 services:
                   - name: postgres:$PG_VERSION
                     alias: pg
             YAML
+
+            expect(environment.problems).to match [/The service postgres:\$PG_VERSION of job 'job' uses the undefined variable PG_VERSION/]
+          end
+
+          it 'uses image variables defined in the .rascal block' do
+            environment = from_config(<<~YAML, 'job')
+              .rascal:
+                variables:
+                  CI_REGISTRY_IMAGE: registry.example.com/app
+              job:
+                image: $CI_REGISTRY_IMAGE/test:latest
+            YAML
+
+            expect(environment.problems).to eq []
+            expect(environment.container.image).to eq 'registry.example.com/app/test:latest'
+          end
+
+          it 'warns about variables that reference undefined variables' do
+            environment = from_config(<<~YAML, 'job')
+              job:
+                image: job-image:latest
+                variables:
+                  DATABASE_URL: postgres://user:$DB_PASSWORD@db/$DB_NAME
+                  OTHER: fine
+            YAML
+
+            expect(environment.warnings).to eq [
+              "Variable DATABASE_URL references DB_PASSWORD, DB_NAME, which are undefined and expanded to an empty string. " \
+              "If the job needs them, define them under `variables:` in the `.rascal` block."
+            ]
+            expect(environment.env_variables).to include('DATABASE_URL' => 'postgres://user:@db/')
+          end
+
+          it 'merges global and job variables by name before expanding them, like GitLab' do
+            environment = from_config(<<~YAML, 'job')
+              variables:
+                OPTS: --global
+              job:
+                image: job-image:latest
+                variables:
+                  OPTS: $OPTS --job
+            YAML
+
+            # The job's definition replaces the global one, so $OPTS has no earlier definition.
+            expect(environment.env_variables).to include('OPTS' => ' --job')
+          end
+
+          it 'lets the .rascal block extend a job variable by referencing it' do
+            environment = from_config(<<~YAML, 'job')
+              variables:
+                RUBYOPT: -Wglobal
+              .rascal:
+                variables:
+                  RUBYOPT: $RUBYOPT -Wrascal
+                jobs:
+                  job:
+                    variables:
+                      RUBYOPT: $RUBYOPT -Wrascal-job
+              job:
+                image: job-image:latest
+                variables:
+                  RUBYOPT: -Wjob
+            YAML
+
+            expect(environment.env_variables).to include('RUBYOPT' => '-Wjob -Wrascal -Wrascal-job')
+          end
+
+          it 'lets the .rascal block replace a job variable defined with expand: false' do
+            environment = from_config(<<~YAML, 'job')
+              .rascal:
+                variables:
+                  PATTERN: rascal-$CI_JOB_NAME
+              job:
+                image: job-image:latest
+                variables:
+                  PATTERN:
+                    value: $raw
+                    expand: false
+            YAML
+
+            expect(environment.env_variables).to include('PATTERN' => 'rascal-job')
           end
 
         end
@@ -483,6 +721,29 @@ module Rascal
             broken:
               script: rake
           YAML
+        end
+
+        it 'accepts an empty .rascal block' do
+          expect(definition(<<~YAML).available_environment_names).to eq ['job']
+            .rascal:
+            job:
+              image: job-image:latest
+          YAML
+        end
+
+        it 'treats job names YAML reads as numbers as strings' do
+          definition = definition(<<~YAML)
+            .rascal:
+              jobs:
+                2.6:
+                  variables:
+                    FOO: bar
+            2.6:
+              image: job-image:latest
+          YAML
+
+          expect(definition.available_environment_names).to eq ['2.6']
+          expect(definition.environment('2.6').env_variables).to include('FOO' => 'bar')
         end
 
         it 'returns nothing for an empty file' do

@@ -2,9 +2,14 @@ require 'shellwords'
 
 module Rascal
   class Environment
-    attr_reader :name, :network, :container, :env_variables, :services, :volumes, :working_dir, :before_shell
+    include IOHelper
 
-    def initialize(full_name, name:, image:, env_variables: {}, services: [], volumes: [], before_shell: [], after_shell: [], working_dir: nil)
+    attr_reader :name, :network, :container, :env_variables, :services, :volumes, :working_dir, :before_shell,
+      :problems, :warnings
+
+    # `problems` prevent the environment from starting, but not from being cleaned.
+    # `warnings` are shown before starting it.
+    def initialize(full_name, name:, image:, env_variables: {}, services: [], volumes: [], before_shell: [], after_shell: [], working_dir: nil, problems: [], warnings: [])
       @name = name
       @network = Docker::Network.new(full_name)
       @container = Docker::Container.new(full_name, image)
@@ -14,9 +19,12 @@ module Rascal
       @working_dir = working_dir
       @before_shell = before_shell
       @after_shell = after_shell
+      @problems = problems
+      @warnings = warnings
     end
 
     def run_shell
+      prepare_start
       download_missing
       start_services
       command = [*@before_shell, 'bash', *@after_shell].join(';')
@@ -38,6 +46,7 @@ module Rascal
     # to bash, so arguments may contain spaces and shell metacharacters. Use
     # e.g. `bash -c "foo && bar"` to run something the shell must interpret.
     def run_command(*command)
+      prepare_start
       download_missing
       start_services
       @container.run_and_attach('bash', '-c', command_script(Shellwords.join(command)),
@@ -57,6 +66,7 @@ module Rascal
     end
 
     def update(skip: [])
+      raise_problems
       [
         *@services.collect { |s| s.update(skip: skip) },
         *@container.update(skip: skip),
@@ -64,6 +74,15 @@ module Rascal
     end
 
     private
+
+    def prepare_start
+      raise_problems
+      @warnings.each { |warning| stderr.puts("Warning: #{warning}") }
+    end
+
+    def raise_problems
+      raise Error, @problems.join("\n") if @problems.any?
+    end
 
     # Runs before_shell/after_shell around the given command, but exits with the
     # command's status. Without saving it, an `after_shell` entry would determine

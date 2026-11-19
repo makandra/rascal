@@ -52,9 +52,9 @@ module Rascal
         @id = nil
       end
 
-      def start(network: nil, network_alias: nil, volumes: [], env: {}, command: [])
+      def start(network: nil, network_aliases: [], volumes: [], env: {}, command: [])
         say "Starting container for #{@name}"
-        create(network: network, network_alias: network_alias, volumes: volumes, env: env, command: command) unless exists?
+        create(network: network, network_aliases: network_aliases, volumes: volumes, env: env, command: command) unless exists?
         Docker.interface.run(
           'container',
           'start',
@@ -62,7 +62,7 @@ module Rascal
         )
       end
 
-      def create(network: nil, network_alias: nil, volumes: [], env: {}, command: [])
+      def create(network: nil, network_aliases: [], volumes: [], env: {}, command: [])
         @id = Docker.interface.run(
           'container',
           'create',
@@ -70,7 +70,7 @@ module Rascal
           *(volumes.flat_map { |v| ['-v', v.to_param] }),
           *env_args(env),
           *(['--network', network.id] if network),
-          *(['--network-alias', network_alias] if network_alias),
+          *(network_aliases.flat_map { |network_alias| ['--network-alias', network_alias] } if network),
           @image,
           *command,
           output: :id,
@@ -171,10 +171,13 @@ module Rascal
         )
       end
 
+      # Also removes the container's anonymous volumes, like the data volume that
+      # the postgres and redis images declare. Named volumes are kept.
       def remove_container
         Docker.interface.run(
           'container',
           'rm',
+          '--volumes',
           id,
         )
       end

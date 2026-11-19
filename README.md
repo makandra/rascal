@@ -100,27 +100,37 @@ Every top-level key is a job, except for GitLab's global keywords (`default`, `i
 
 For each job, rascal combines its config like GitLab does, then applies the `.rascal` block on top:
 
-1. `default:` (and the deprecated top-level keys)
-2. the job itself, where each key replaces the same key from `default:` as a whole
-3. the `.rascal` block
-4. the job's entry under `.rascal: jobs:`
+1. `default:` (and the deprecated top-level keys), limited by the job's `inherit: default:`
+2. the templates in the job's `extends:`, merged in order
+3. the job itself, where each key replaces the same key from `default:` as a whole
+4. the `.rascal` block
+5. the job's entry under `.rascal: jobs:`
 
 From the combined config, rascal uses `image`, `services` and `variables`. It ignores `script`,
 `before_script`, `cache`, `rules` and everything else that only matters to a GitLab runner. Use
-`before_shell` in the `.rascal` block to prepare the environment instead. `extends:`, `include:` and
-`!reference` are not supported yet.
+`before_shell` in the `.rascal` block to prepare the environment instead. `include:` and `!reference`
+are not supported yet.
+
+Services may be given as a plain image name (`- postgres:15`). Without an `alias`, a service is
+reachable under the host names GitLab derives from its image, like `postgres`.
 
 Variables are resolved like in a GitLab job:
 
-- Job variables override global `variables:`, and the `.rascal` block overrides both.
+- Global `variables:` (limited by the job's `inherit: variables:`) and job variables are merged by
+  name. The `.rascal` block and its `jobs:` entries override them.
 - Values, image names and service names may reference variables as `$NAME`, `${NAME}` or `%NAME%`.
   `$$` stands for a literal `$`. A variable defined as `{ value: ..., expand: false }` is used as is.
-- A variable that references its own name, like `PATH: $PATH:/more`, extends its earlier definition.
-- rascal predefines `CI=true`, `GITLAB_CI=true`, `CI_JOB_NAME`, `CI_PROJECT_NAME`, `CI_BUILDS_DIR`, and
-  `CI_PROJECT_DIR` (the path of your project in the container, `/repo` by default). Override them in
-  the `.rascal` block if needed.
-- An image name that references an undefined variable is an error. In variables, an undefined
-  `$NAME` becomes an empty string, like in GitLab.
+- In the `.rascal` block, a variable can extend the job's value by referencing its own name, like
+  `RUBYOPT: $RUBYOPT -W:deprecated`.
+- rascal predefines `CI=true`, `GITLAB_CI=true`, `CI_JOB_NAME`, `CI_BUILDS_DIR` (`/builds`),
+  `CI_PROJECT_DIR` (the path of your project in the container, `/repo` by default) and
+  `CI_PROJECT_NAME` (the name of your project directory). Tools may behave differently when `CI` is
+  set. For example, `pnpm install` refuses to change the lockfile. Override them in the `.rascal`
+  block if needed.
+- rascal cannot see variables that GitLab sets, like `CI_REGISTRY_IMAGE`, or that are defined in
+  the project's CI/CD settings. Define them under `variables:` in the `.rascal` block if a job needs
+  them. An undefined variable in a variable's value becomes an empty string, like in GitLab, and
+  rascal warns about it. An undefined variable in an image name keeps rascal from starting the job.
 
 
 ### Commands
@@ -179,12 +189,12 @@ Update all images for the given job, or all jobs.
 
 You need Ruby and a running Docker daemon. Install the dependencies with `bundle install`.
 
-rascal has three kinds of tests:
+All tests are RSpec specs, of three kinds:
 
 | Tests | Location | What they cover | Speed |
 |---|---|---|---|
 | Unit specs | `spec/rascal/` | Parsing CI configs, resolving variables, and other logic. Most tests belong here. | Fast |
-| Features | `features/` | The command line, with a mocked Docker that records which `docker` commands rascal calls. | Fast |
+| CLI specs | `spec/cli/` | The command line, with a mocked Docker that records which `docker` commands rascal would call. For what real Docker cannot show easily, like `rascal shell` with a TTY or broken networks. | Fast |
 | Integration specs | `spec/integration/` | The real `rascal` executable against a real Docker daemon. | About 20 seconds, plus pulling small images on the first run |
 
 Run them like this:
@@ -193,16 +203,21 @@ Run them like this:
 bundle exec rake                        # everything, like CI does
 bundle exec rspec --tag ~integration    # only the fast specs
 bundle exec rspec --tag integration     # only the integration specs
-bundle exec cucumber                    # only the features
 ```
 
 The integration specs fail with an explanation when Docker is not running. They do not skip, so a
 green run always means everything was tested.
 
-Integration specs exist for key paths and for behavior that only real Docker can show, like a job
-reaching its services by their alias, or exit statuses passing through. Do not add one for every
-variation of a CI config. Cover those with unit specs instead. Every spec in `spec/integration/` is
-tagged with `integration: true` automatically.
+Test each behavior once, at the cheapest level that can show it works:
+
+- Parsing and resolving CI configs belongs in unit specs, with one example per variation.
+- What rascal does with Docker belongs in integration specs, for key paths and for behavior only
+  real Docker can show, like a job reaching its services by their alias, or exit statuses passing
+  through. Do not add one for every variation of a CI config.
+- CLI specs cover the rest: command line errors and output, and situations that are hard to create
+  with real Docker.
+
+Every spec in `spec/integration/` is tagged with `integration: true` automatically.
 
 Each integration spec creates a project directory named `rascal-it-<random>` in the system's temp
 directory, and removes it together with its containers, networks and volumes afterwards. If you abort
@@ -213,6 +228,9 @@ docker ps --all --filter name=rascal-rascal-it- --quiet | xargs -r docker rm --f
 docker network ls --filter name=rascal-rascal-it- --quiet | xargs -r docker network rm
 docker volume ls --filter name=rascal-rascal-it- --quiet | xargs -r docker volume rm
 ```
+
+Containers write files as root, so leftover `rascal-it-*` directories in the temp directory may need
+`sudo rm -rf` to remove.
 
 
 ## License
