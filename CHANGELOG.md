@@ -37,6 +37,8 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
 - `rascal clean` also removes the anonymous volumes of service containers, like the data volumes of
   postgres and redis, which used to pile up.
 - Job names like `2.6`, which YAML reads as numbers, work in `.rascal: jobs:`.
+- Rewrite the README around setting up a project, working in it and tearing it down, with a
+  configuration reference and troubleshooting. Improve the command line help.
 
 
 ## 0.4.1 (2026-07-30)

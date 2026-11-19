@@ -9,10 +9,11 @@ module Rascal
           say 'Usage:'
           say '  rascal <command> <args>'
           say 'For example:'
-          say '  rascal shell 2.6'
+          say '  rascal run rspec -- bundle exec rspec spec/models/user_spec.rb'
           say
           super
-          say 'For Further information about the commands, you can use "rascal help <command>".'
+          say 'For more about a command, run "rascal help <command>". The README explains setup and troubleshooting:'
+          say '  https://github.com/makandra/rascal#readme'
           say
         end
       end
@@ -29,14 +30,14 @@ module Rascal
 
 
       map "shell" => "_shell"
-      desc 'shell ENVIRONMENT', 'Start a docker shell for the given environment'
+      desc 'shell ENVIRONMENT', 'Open an interactive bash in an environment'
       def _shell(environment_name = nil)
         handle_error do
           Shell.new(self, options, environment_name).run
         end
       end
 
-      desc 'environments', 'List the names of all available environments'
+      desc 'environments', 'List the jobs you can use as environments'
       def environments
         handle_error do
           Environments.new(self, options).run
@@ -46,7 +47,13 @@ module Rascal
       # Thor::Actions already defines #run, hence the mapping.
       map 'run' => '_run'
       stop_on_unknown_option! :_run
-      desc 'run ENVIRONMENT COMMAND', 'Run a command in the given environment and exit with its status'
+      desc 'run ENVIRONMENT -- COMMAND', 'Run a command in an environment'
+      long_desc <<~TEXT
+        Runs a command in the environment of a CI job, without a terminal, and exits with its status.
+        Everything after -- is passed on as arguments. For shell syntax, use bash -c:
+
+        rascal run rspec -- bash -c 'bin/rails db:migrate && bundle exec rspec'
+      TEXT
       def _run(environment_name = nil, *command)
         handle_error do
           command = command.drop(1) if command.first == '--'
@@ -54,8 +61,8 @@ module Rascal
         end
       end
 
-      desc 'clean ENVIRONMENT', 'Stop and remove docker containers for the given environment'
-      method_option :volumes, type: :boolean, default: false, desc: 'Remove (cache) volumes'
+      desc 'clean ENVIRONMENT', "Remove an environment's services"
+      method_option :volumes, type: :boolean, default: false, desc: 'Also remove volumes, like caches'
       method_option :all, type: :boolean, default: false, desc: 'Clean all environments'
       def clean(environment_name = nil)
         handle_error do
@@ -63,8 +70,8 @@ module Rascal
         end
       end
 
-      desc 'update ENVIRONMENT', 'Update all docker images'
-      method_option :all, type: :boolean, default: false, desc: 'update all available environments'
+      desc 'update ENVIRONMENT', "Pull an environment's latest images"
+      method_option :all, type: :boolean, default: false, desc: 'Update all environments'
       def update(environment_name = nil)
         handle_error do
           Update.new(self, options, environment_name).run
