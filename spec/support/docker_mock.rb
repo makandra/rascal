@@ -20,6 +20,7 @@ class DockerMockInterface < Rascal::Docker::Interface
     @containers = Hash.new { |h, k| h[k] = {} }
     @volumes = Hash.new { |h, k| h[k] = {} }
     @counter = 0
+    @pull_failures = {}
     super
   end
 
@@ -39,6 +40,11 @@ class DockerMockInterface < Rascal::Docker::Interface
     @containers[name] = { id: Digest::SHA1.hexdigest("container-#{name}") }
     @containers[name][:State] = { Running: true } if running
     @containers[name][:NetworkSettings] = { Networks: { 'some-network' => { 'NetworkID' => network_id } } } if network_id
+  end
+
+  # Lets `docker pull` of the image fail with the given error output.
+  def pull_fails(image, error)
+    @pull_failures[image] = error
   end
 
   def container_id(name)
@@ -65,10 +71,15 @@ class DockerMockInterface < Rascal::Docker::Interface
       sleep 0.01
       stdin_reader.close
       output = output_for(*command)
-      stdout_writer.puts(output)
+      failed = output == :fail || (output.is_a?(Array) && output.first == :fail)
+      if output.is_a?(Array) && output.first == :fail
+        stderr_writer.puts(output.last)
+      else
+        stdout_writer.puts(output)
+      end
       stdout_writer.close
       stderr_writer.close
-      exit_status(output != :fail)
+      exit_status(!failed)
     end
     block.call(stdin_writer, stdout_reader, stderr_reader, thread)
   end
@@ -79,7 +90,7 @@ class DockerMockInterface < Rascal::Docker::Interface
       # Like docker, an array with one entry for an existing image.
       (@images.key?($1) ? [@images[$1]] : []).to_json
     when /pull (\S*)/
-      "[Docker mock] Pulling #{$1}"
+      @pull_failures.key?($1) ? [:fail, @pull_failures[$1]] : "[Docker mock] Pulling #{$1}"
     when /network ls.*name=\^(.*)\$/
       NETWORK_ID
     when /volume ls.*name=\^(.*)\$/

@@ -15,6 +15,6 @@ describe 'rascal environments' do
     result = run_rascal('environments')
 
     expect(result.exit_code).not_to eq 0
-    expect(result.stderr).to include('Could not find an environment definition')
+    expect(result.stderr).to include("Could not find a .gitlab-ci.yml in #{project_dir}. Run rascal in your project's root directory, or point to the file with --config-file.")
   end
 end

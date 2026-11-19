@@ -28,6 +28,10 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
 - Give files that commands create in the project back to the host user. They used to belong to root.
 - Make the host's SSH agent and known hosts available in the container, so it can fetch private
   dependencies over SSH. Turn this off with `ssh_agent: false` in the `.rascal` block.
+- Read settings for rascal from a `.rascal.yml` next to `.gitlab-ci.yml`, which extends the `.rascal`
+  block. Use it for settings that should not be part of the project's CI config.
+- Suggest `docker login` when an image cannot be pulled for lack of credentials, and explain where
+  rascal looked for `.gitlab-ci.yml`.
 - `rascal clean` also removes the anonymous volumes of service containers, like the data volumes of
   postgres and redis, which used to pile up.
 - Job names like `2.6`, which YAML reads as numbers, work in `.rascal: jobs:`.

@@ -49,7 +49,8 @@ module Rascal
         if (definition = EnvironmentsDefinition.detect(config_location))
           definition
         else
-          fail_with_error("Could not find an environment definition in current working directory.")
+          fail_with_error("Could not find a .gitlab-ci.yml in #{config_location}. Run rascal in your project's root directory, " \
+                          "or point to the file with --config-file.")
           nil
         end
       end

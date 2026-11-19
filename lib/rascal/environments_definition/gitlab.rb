@@ -8,6 +8,9 @@ module Rascal
       # Deprecated top-level keys that GitLab treats like the same keys in `default:`.
       GLOBAL_DEFAULT_KEYS = %w[image services cache before_script after_script].freeze
 
+      # Settings for rascal that extend the `.rascal` block, outside of the CI config.
+      LOCAL_CONFIG_FILE = '.rascal.yml'
+
       # GitLab's limit for nested `extends:`.
       MAX_EXTENDS_DEPTH = 10
 
@@ -55,7 +58,9 @@ module Rascal
         @info = @file.to_h
         @repo_dir = config_path.parent
         @base_name = @repo_dir.basename
-        @rascal_config = hash_or_empty(@info['.rascal']).dup
+        # A .rascal.yml next to .gitlab-ci.yml extends the .rascal block, for settings
+        # that should not be part of the project's CI config.
+        @rascal_config = deep_merge(hash_or_empty(@info['.rascal']), local_rascal_config(config_path))
         @rascal_environment_config = hash_or_empty(@rascal_config.delete('jobs'))
       end
 
@@ -70,6 +75,11 @@ module Rascal
       end
 
       private
+
+      def local_rascal_config(config_path)
+        path = config_path.parent.join(LOCAL_CONFIG_FILE)
+        path.file? ? GitlabFile.new(path).to_h : {}
+      end
 
       def jobs
         @jobs ||= @info.filter_map do |key, job_config|

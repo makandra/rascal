@@ -174,6 +174,35 @@ module Rascal
           )
         end
 
+        it 'extends the .rascal block with a .rascal.yml next to .gitlab-ci.yml' do
+          @tmp_dir.join('repo').mkpath
+          @tmp_dir.join('repo/.rascal.yml').write(<<~YAML)
+            before_shell:
+              - bundle install
+            variables:
+              LOCAL: local
+              SHARED: local
+            jobs:
+              job:
+                variables:
+                  LOCAL_JOB: local
+          YAML
+
+          environment = from_config(<<~YAML, 'job')
+            .rascal:
+              before_shell:
+                - bundle check
+              variables:
+                SHARED: rascal-block
+                BLOCK: rascal-block
+            job:
+              image: job-image:latest
+          YAML
+
+          expect(environment.before_shell).to eq ['bundle install']
+          expect(environment.env_variables).to include('LOCAL' => 'local', 'SHARED' => 'local', 'BLOCK' => 'rascal-block', 'LOCAL_JOB' => 'local')
+        end
+
         it 'merges config from a default block' do
           environment = from_config(<<~YAML, 'job-1')
             default:

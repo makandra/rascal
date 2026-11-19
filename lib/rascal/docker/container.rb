@@ -14,11 +14,7 @@ module Rascal
       def download_missing
         unless image_exists?
           say "Downloading image for #{@name}"
-          Docker.interface.run(
-            'pull',
-            @image,
-            stdout: stdout,
-          )
+          pull
         end
       end
 
@@ -121,11 +117,7 @@ module Rascal
       def update(skip: [])
         return if skip.include?(@image)
         say "Updating image #{@image}"
-        Docker.interface.run(
-          'pull',
-          @image,
-          stdout: stdout,
-        )
+        pull
         @image
       end
 
@@ -141,6 +133,19 @@ module Rascal
       end
 
       private
+
+      def pull
+        Docker.interface.run(
+          'pull',
+          @image,
+          stdout: stdout,
+        )
+      rescue Interface::Error => e
+        raise unless e.message.match?(/unauthorized|authentication required|denied|no basic auth credentials/i)
+
+        registry = @image.include?('/') && @image.split('/').first.match?(/[.:]|\Alocalhost\z/) ? @image.split('/').first : 'docker.io'
+        raise Error, "#{e.message.strip}\nDocker may need credentials for #{registry}. Log in with `docker login #{registry}`, then try again."
+      end
 
       # A fresh `docker container inspect`, or nil if there is no container.
       def container_info

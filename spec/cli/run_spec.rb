@@ -43,6 +43,19 @@ describe 'rascal run' do
     expect(docker.commands).to eq []
   end
 
+  it 'suggests docker login when the image cannot be pulled for lack of credentials' do
+    gitlab_ci_config(<<~YAML)
+      job:
+        image: registry.example.com/group/app:1.0
+    YAML
+    docker.pull_fails('registry.example.com/group/app:1.0', 'Error response from daemon: unauthorized: HTTP Basic: Access denied')
+
+    result = run_rascal('run', 'job', '--', 'true')
+
+    expect(result.exit_code).not_to eq 0
+    expect(result.stderr).to include('Log in with `docker login registry.example.com`, then try again.')
+  end
+
   it 'warns about variables that reference undefined variables, and runs anyway' do
     gitlab_ci_config(<<~YAML)
       job:
