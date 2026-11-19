@@ -144,6 +144,14 @@ private repositories. Use `ssh_agent` instead (see below).
 Gems stay installed between commands if the job sets `BUNDLE_PATH` to a directory in the project,
 as most CI configs do to cache gems. Otherwise, set it in the `.rascal` block (see below).
 
+You only need the steps for what you want to run. A model spec may need only gems and a database,
+while browser tests may also need Node packages and compiled assets. An existing `before_shell` may
+cover only part of CI's setup.
+
+**Setup can change files in Git.** For example, `bundle install` may rewrite `Gemfile.lock` if the
+Gemfile treats CI differently (rascal sets `CI` and `GITLAB_CI`, see [Variables](#variables)). Check
+`git status` after setting up, and undo changes you did not intend before you commit anything.
+
 ### 4. Make it repeatable (optional)
 
 Commands in `before_shell` run before every command, so the environment is always ready, even after
