@@ -11,10 +11,6 @@ module Rascal
       @command = [*command]
     end
 
-    def alias
-      @aliases.first
-    end
-
     def download_missing
       @container.download_missing
     end

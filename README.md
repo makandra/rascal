@@ -102,7 +102,7 @@ For each job, rascal combines its config like GitLab does, then applies the `.ra
 
 1. `default:` (and the deprecated top-level keys), limited by the job's `inherit: default:`
 2. the templates in the job's `extends:`, merged in order
-3. the job itself, where each key replaces the same key from `default:` as a whole
+3. the job itself. Each key from steps 2 and 3 replaces the same key from `default:` as a whole.
 4. the `.rascal` block
 5. the job's entry under `.rascal: jobs:`
 

@@ -45,18 +45,31 @@ describe 'rascal shell' do
           - name: service-image:latest
             alias: service
             command: bin/start
-          - postgres:15
+          - registry.example.com/group/postgres:15
     YAML
 
     result = run_rascal!('shell', 'job')
 
     expect(docker.commands).to include(
       match(%r{\Adocker container create --name rascal-app-job_service -v .*/app:/repo -v rascal-app-job-builds:/builds .* --network deadbeef --network-alias service service-image:latest bin/start\z}),
-      match(/\Adocker container create --name rascal-app-job_postgres .* --network-alias postgres postgres:15\z/),
+      match(%r{\Adocker container create --name rascal-app-job_registry.example.com-group-postgres .* --network-alias registry.example.com-group-postgres --network-alias registry.example.com__group__postgres registry.example.com/group/postgres:15\z}),
       'docker container start 00000001',
       'docker container start 00000002',
     )
-    expect(result.stdout).to include("Starting container for app-job_service\nStarting container for app-job_postgres\n")
+    expect(result.stdout).to include("Starting container for app-job_service\nStarting container for app-job_registry.example.com-group-postgres\n")
+  end
+
+  it "explains why it cannot start a job's environment" do
+    gitlab_ci_config(<<~YAML)
+      job:
+        script: rake
+    YAML
+
+    result = run_rascal('shell', 'job')
+
+    expect(result.exit_code).not_to eq 0
+    expect(result.stderr).to include("Job 'job' has no image.")
+    expect(docker.commands).to eq []
   end
 
   describe 'with an existing service container' do

@@ -15,6 +15,18 @@ describe 'rascal run' do
     expect(docker.commands).not_to include(match(/container run/))
   end
 
+  it 'complains about an unknown environment, listing the available ones' do
+    gitlab_ci_config(<<~YAML)
+      job:
+        image: job-image:latest
+    YAML
+
+    result = run_rascal('run', 'nope', '--', 'rake')
+
+    expect(result.exit_code).not_to eq 0
+    expect(result.stderr).to include('Unknown environment nope. Available: job.')
+  end
+
   it "explains why it cannot start a job's environment" do
     gitlab_ci_config(<<~YAML)
       deploy:

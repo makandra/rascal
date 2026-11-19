@@ -41,12 +41,18 @@ module Rascal
         @definitions.keys.to_h { |name| [name, resolve(name)] }
       end
 
-      # The variables whose values reference undefined variables, as a hash
-      # from each variable's name to the names of the undefined ones.
+      # The variables whose values directly reference undefined variables, as a hash
+      # from each variable's name to the names of the undefined ones. A variable that
+      # references its own name without a lower definition does not count, since
+      # appending to an unset variable is common.
       def undefined_references
         @definitions.keys.each_with_object({}) do |name, result|
+          layer = @definitions[name].size - 1
+          definition = @definitions[name][layer]
+          next unless definition.expand
+
           undefined = []
-          resolve(name) { |undefined_name| undefined << undefined_name }
+          expand_with(definition.value, [name, layer], [[name, layer]], direct_only: true) { |undefined_name| undefined << undefined_name }
           result[name] = undefined.uniq if undefined.any?
         end
       end
@@ -93,7 +99,9 @@ module Rascal
       end
 
       # `current` is the variable whose value is being expanded, as [name, layer].
-      def expand_with(string, current, visiting, &on_undefined)
+      # With `direct_only`, only undefined variables in `string` itself are yielded, not
+      # those in the values of variables it references.
+      def expand_with(string, current, visiting, direct_only: false, &on_undefined)
         string.gsub(REFERENCE) do
           match = Regexp.last_match
           if match[0] == '$$'
@@ -104,9 +112,9 @@ module Rascal
             name = match[:name] || match[:percent_name]
             layer = referenced_layer(name, current)
             if layer
-              resolve(name, layer, visiting, &on_undefined)
+              direct_only ? resolve(name, layer, visiting) : resolve(name, layer, visiting, &on_undefined)
             elsif match[:name]
-              on_undefined&.call(name)
+              on_undefined&.call(name) unless current&.first == name
               ''
             else
               match[0]

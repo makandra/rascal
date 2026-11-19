@@ -10,8 +10,8 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
   for jobs. `include:` and `stages:` are ignored as well. The deprecated top-level `image`,
   `services`, `cache`, `before_script` and `after_script` now act like the same keys in `default:`.
 - Support `extends:` and `inherit:`.
-- Support services given as a plain image name, and services without an alias, which get the host
-  names GitLab derives from their image.
+- Support services given as a plain image name, services with several aliases (`alias: db,postgres`),
+  and services without an alias, which get the host names GitLab derives from their image.
 - Expand variables in variables, image names and service names, like GitLab does
   (`$NAME`, `${NAME}`, `%NAME%`, `$$`). Global `variables:` apply to every job.
   In the `.rascal` block, a variable can extend the job's value, like `RUBYOPT: $RUBYOPT -W:deprecated`.
@@ -20,7 +20,8 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
   `CI_BUILDS_DIR`. **This may change how your app and tools behave in a rascal environment**, if they
   check for `CI` or `GITLAB_CI`. Override them in the `.rascal` block if needed.
 - Let a job override `default:`, like GitLab does. Rascal used to do it the other way around.
-- Explain what is wrong when a job has no image, or its image uses an undefined variable.
+- Explain what is wrong when a job has no image, its image uses an undefined variable, or its
+  `extends:` templates cannot be resolved.
   `rascal clean` and `rascal environments` still work for such jobs, and `rascal update --all` skips them.
 - `rascal clean` also removes the anonymous volumes of service containers, like the data volumes of
   postgres and redis, which used to pile up.

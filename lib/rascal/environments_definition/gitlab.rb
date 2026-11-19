@@ -42,8 +42,8 @@ module Rascal
       end
 
       # `variable_layers` are the job's variable definitions, from the lowest to the highest
-      # priority. See #variable_layers.
-      Job = Struct.new(:key, :name, :config, :variable_layers)
+      # priority. See #variable_layers. `problems` keep the job's environment from starting.
+      Job = Struct.new(:key, :name, :config, :variable_layers, :problems)
 
 
       def initialize(config_path)
@@ -79,7 +79,14 @@ module Rascal
           next if key.start_with?('.') || GLOBAL_KEYS.include?(key) || GLOBAL_DEFAULT_KEYS.include?(key)
           next unless job_config.is_a?(Hash)
 
-          job_config = resolve_extends(key)
+          problems = []
+          begin
+            job_config = resolve_extends(key)
+          rescue Error => e
+            job_config = job_config.except('extends')
+            # Only this job is affected, so keep the others usable.
+            problems << e.message
+          end
           rascal_job_config = hash_or_empty(@rascal_environment_config[key])
           # The .rascal block overrides the job, which overrides `default:`.
           # Variables are resolved separately, see #variable_layers.
@@ -90,7 +97,7 @@ module Rascal
           ), key)
           next if config.get('hide', false)
 
-          Job.new(key, config.get('name', key), config, variable_layers(job_config, rascal_job_config))
+          Job.new(key, config.get('name', key), config, variable_layers(job_config, rascal_job_config), problems)
         end
       end
 
@@ -108,7 +115,10 @@ module Rascal
 
         bases = Array(config['extends']).collect(&:to_s)
         if (unknown = bases.reject { |base| @info.key?(base) }).any?
-          raise Error, "#{key}: unknown keys in `extends` (#{unknown.join(', ')})"
+          raise Error, "#{key}: unknown keys in `extends` (#{unknown.join(', ')}). " \
+                       "If #{unknown.size == 1 ? 'it is' : 'they are'} defined in a file from `include:`, note that rascal " \
+                       "only reads local includes. Set the missing config in the `.rascal` block " \
+                       "(`.rascal: jobs: #{ancestors.first || key}:`), or hide the job with `hide: true` there."
         elsif (invalid = bases.reject { |base| @info[base].is_a?(Hash) }).any?
           raise Error, "#{key}: invalid base hashes in `extends` (#{invalid.join(', ')})"
         end
@@ -166,7 +176,8 @@ module Rascal
         full_name = "#{@base_name}-#{job.name}"
         shared_volumes = [build_repo_volume(docker_repo_dir), build_builds_volume(full_name)]
         variables = GitlabVariables.new(predefined_variables(job, docker_repo_dir), *job.variable_layers)
-        problems = []
+        problems = job.problems.dup
+        warnings = []
         Environment.new(full_name,
           name: job.name,
           image: image_name(job, variables, problems),
@@ -174,14 +185,27 @@ module Rascal
             *shared_volumes,
             *build_volumes(full_name, config.get('volumes', {}))
           ],
-          env_variables: variables.to_h,
-          services: build_services(job, full_name, config.get('services', []), volumes: shared_volumes, variables: variables, problems: problems),
+          env_variables: resolve_variables(variables, problems, warnings),
+          services: build_services(job, full_name, config.get('services', []), volumes: shared_volumes, variables: variables, problems: problems, warnings: warnings),
           before_shell: config.get('before_shell', []),
           after_shell: config.get('after_shell', []),
           working_dir: docker_repo_dir,
-          problems: problems,
-          warnings: undefined_variable_warnings(variables),
+          problems: problems.uniq,
+          warnings: warnings.uniq,
         )
+      end
+
+      # Returns the expanded variables. Records circular references as a problem,
+      # and references to undefined variables as warnings.
+      def resolve_variables(variables, problems, warnings, only: nil)
+        resolved = variables.to_h
+        undefined = variables.undefined_references
+        undefined = undefined.slice(*only) if only
+        warnings.concat(undefined_variable_warnings(undefined))
+        resolved
+      rescue Error => e
+        problems << e.message
+        {}
       end
 
       # A subset of the variables GitLab predefines for every job.
@@ -204,6 +228,9 @@ module Rascal
         image = job.config.get('image', nil)
         image = image['name'] if image.is_a?(Hash)
         if image.nil? || image.to_s.empty?
+          # A job whose templates could not be resolved lacks its image as a consequence.
+          return if job.problems.any?
+
           problems << "Job '#{job.key}' has no image. Set `image:` in the job, in `default:`, " \
                       "or in the `.rascal` block (`.rascal: jobs: #{job.key}: image:`)."
           return
@@ -232,8 +259,8 @@ module Rascal
         "Define it for rascal under `variables:` in the `.rascal` block."
       end
 
-      def undefined_variable_warnings(variables)
-        variables.undefined_references.collect do |name, undefined|
+      def undefined_variable_warnings(undefined_references)
+        undefined_references.collect do |name, undefined|
           "Variable #{name} references #{undefined.join(', ')}, which #{undefined.size == 1 ? 'is' : 'are'} undefined " \
           "and expanded to an empty string. If the job needs #{undefined.size == 1 ? 'it' : 'them'}, " \
           "define #{undefined.size == 1 ? 'it' : 'them'} under `variables:` in the `.rascal` block."
@@ -276,31 +303,46 @@ module Rascal
         end
       end
 
-      def build_services(job, name, services, volumes: [], variables:, problems:)
+      def build_services(job, name, services, volumes: [], variables:, problems:, warnings:)
         Array(services).collect do |service_config|
           # GitLab also allows services as a plain image name.
           service_config = { 'name' => service_config.to_s } unless service_config.is_a?(Hash)
-          service_variables = variables.merge(hash_or_empty(service_config['variables']))
-          image = expand_name(service_variables, service_config['name'].to_s, problems) do |undefined|
-            "The service #{service_config['name']} of job '#{job.key}' uses the undefined variable #{undefined}. " \
-            "#{undefined_variable_advice(undefined)}"
+          own_variables = hash_or_empty(service_config['variables'])
+          service_variables = variables.merge(own_variables)
+          raw_image = service_config['name'].to_s
+          image = if raw_image.empty?
+            problems << "A service of job '#{job.key}' has no image. Set `name:` for each service."
+            nil
+          else
+            expand_name(service_variables, raw_image, problems) do |undefined|
+              "The service #{raw_image} of job '#{job.key}' uses the undefined variable #{undefined}. " \
+              "#{undefined_variable_advice(undefined)}"
+            end
           end
-          aliases = service_config['alias'] ? [service_config['alias'].to_s] : default_service_aliases(image.to_s)
+          aliases = service_aliases(service_config['alias'], image || raw_image)
           Service.new("#{name}_#{aliases.first}",
             aliases: aliases,
             image: image,
             volumes: volumes,
-            env_variables: service_variables.to_h,
+            env_variables: resolve_variables(service_variables, problems, warnings, only: own_variables.keys.collect(&:to_s)),
             command: service_config['command'],
           )
         end
       end
 
-      # The host names GitLab derives from a service's image when it has no alias:
-      # `registry.example.com/group/postgres:15` becomes `registry.example.com-group-postgres`
+      # GitLab allows several aliases, separated by commas or spaces. Without an alias, a
+      # service gets the host names GitLab derives from its image:
+      # `registry.example.com:5000/group/postgres:15` becomes `registry.example.com-group-postgres`
       # and `registry.example.com__group__postgres`.
-      def default_service_aliases(image)
-        name = image.sub(/@.*\z/, '').sub(%r{:[^/:]*\z}, '')
+      def service_aliases(alias_config, image)
+        aliases = alias_config.to_s.split(/[\s,]+/).reject(&:empty?)
+        return aliases if aliases.any?
+
+        name = image.sub(/@.*\z/, '')           # digest
+          .sub(%r{:[^/:]*\z}, '')               # tag
+          .sub(%r{\A([^/]+):\d+(?=/)}, '\\1')    # registry port
+          .gsub(/[^a-zA-Z0-9_.\/-]/, '')         # anything Docker does not allow in names, like an unresolved $
+        name = 'service' if name.empty?
         [name.tr('/', '-'), name.gsub('/', '__')].uniq
       end
 
