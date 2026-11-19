@@ -8,6 +8,9 @@ module Rascal
       # Deprecated top-level keys that GitLab treats like the same keys in `default:`.
       GLOBAL_DEFAULT_KEYS = %w[image services cache before_script after_script].freeze
 
+      # The keys of a job's combined config that rascal uses, besides variables.
+      USED_KEYS = %w[image services before_shell after_shell volumes repo_dir].freeze
+
       # Settings for rascal that extend the `.rascal` block, outside of the CI config.
       LOCAL_CONFIG_FILE = '.rascal.yml'
 
@@ -107,9 +110,14 @@ module Rascal
           # Like GitLab, resolve !reference tags after `extends:`. Only in the keys rascal uses,
           # so a reference into an unreadable include in `script:` does not get in the way.
           resolve = ->(value) { resolve_references(value, key, problems) }
-          %w[image services].each { |used_key| config[used_key] = resolve.call(config[used_key]) if config.key?(used_key) }
-          # A reference inside the list of services may resolve to a list of services.
-          config['services'] = Array(config['services']).flat_map { |service| service.is_a?(Array) ? service : [service] } if config.key?('services')
+          USED_KEYS.each { |used_key| config[used_key] = resolve.call(config[used_key]) if config.key?(used_key) }
+          # References inside lists may resolve to lists, which GitLab flattens.
+          %w[services before_shell after_shell].each do |list_key|
+            next unless config.key?(list_key)
+
+            value = config[list_key]
+            config[list_key] = value.is_a?(Array) ? value.flatten : [value].compact
+          end
           # A variable a reference would define might not be needed, or the .rascal block
           # might define it, so that is only worth a warning.
           warnings = []

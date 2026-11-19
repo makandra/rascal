@@ -34,6 +34,9 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
   block. Use it for settings that should not be part of the project's CI config.
 - Suggest `docker login` when an image cannot be pulled for lack of credentials, and explain where
   rascal looked for `.gitlab-ci.yml`.
+- When rascal gets a signal while running a command, it removes the command's container, which kept
+  running before. `rascal clean` removes such containers left over from earlier versions or `kill -9`.
+- Point to the logs of services that stopped, like when their settings are wrong.
 - `rascal clean` also removes the anonymous volumes of service containers, like the data volumes of
   postgres and redis, which used to pile up.
 - Job names like `2.6`, which YAML reads as numbers, work in `.rascal: jobs:`.

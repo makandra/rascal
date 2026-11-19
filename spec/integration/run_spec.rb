@@ -60,6 +60,21 @@ describe 'rascal run' do
     end
   end
 
+  it 'removes the container of a command when rascal is stopped' do
+    create_job_project
+    pid = Process.spawn(RbConfig.ruby, "-I#{IntegrationHelpers::LIB}", IntegrationHelpers::RASCAL, 'run', 'job', '--', 'sleep', '60',
+      chdir: project_dir, out: File::NULL, err: File::NULL)
+    run_containers = -> { docker('ps', '--all', '--quiet', '--filter', "name=rascal-#{project_name}-job-run-").split }
+    100.times { run_containers.call.empty? ? sleep(0.1) : break }
+    expect(run_containers.call.size).to eq 1
+
+    Process.kill('TERM', pid)
+    Process.wait(pid)
+
+    expect($?.exitstatus).to eq 143
+    expect(run_containers.call).to eq []
+  end
+
   it 'exits with the status of the command' do
     create_job_project
 
@@ -137,6 +152,24 @@ describe 'rascal run' do
       result = rascal!('run', 'job', '--', 'bash', '-c', redis_command('GET greeting', reply_lines: 2))
 
       expect(result.stdout).to include("reply: hello\n")
+    end
+
+    it 'points to the logs of a service that stopped' do
+      create_project(<<~YAML)
+        .rascal:
+          services_timeout: 2
+        job:
+          image: #{IntegrationHelpers::JOB_IMAGE}
+          services:
+            - name: #{IntegrationHelpers::REDIS_IMAGE}
+              alias: redis
+              command: ['sh', '-c', 'exit 1']
+      YAML
+
+      result = rascal('run', 'job', '--', 'true')
+
+      expect(result.stderr).to include('rascal: Service redis does not accept connections on port 6379 after 2 seconds, continuing anyway.')
+      expect(result.stderr).to include("Warning: Service redis is not running anymore. See why with `docker logs rascal-#{project_name}-job_redis`")
     end
 
     it 'removes containers, networks and volumes with `clean --all --volumes`' do

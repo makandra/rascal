@@ -144,7 +144,8 @@ module Rascal
         return {} unless document
 
         mark_references(document)
-        class_loader = Psych::ClassLoader::Restricted.new([], [])
+        # Like GitLab, allows symbols, but no other Ruby objects.
+        class_loader = Psych::ClassLoader::Restricted.new(['Symbol'], [])
         scanner = Psych::ScalarScanner.new(class_loader)
         result = Psych::Visitors::ToRuby.new(scanner, class_loader).accept(document)
         stringify_keys(result.is_a?(Hash) ? result : {})

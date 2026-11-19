@@ -100,6 +100,8 @@ class DockerMockInterface < Rascal::Docker::Interface
       @volumes[$1][:id]
     when /container ps.*name=\^\/(.*)\$/
       @containers[$1][:id]
+    when /container ps.*name=\^\/(\S*)\z/
+      @containers.select { |name, _| name.start_with?($1) }.values.collect { |container| container[:id] }.join("\n")
     when /container create --name (\S*)/
       new_id = "%08x" % (@counter += 1)
       @containers[$1] = { id: new_id }

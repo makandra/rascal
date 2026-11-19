@@ -26,6 +26,15 @@ describe 'rascal clean' do
     expect(docker.commands).to include(match(/container rm --volumes/), match(/network rm/))
   end
 
+  it 'removes containers left over from commands that were killed' do
+    docker.container_exists('rascal-app-job-run-0123abcd')
+
+    result = run_rascal!('clean', 'job')
+
+    expect(result.stdout).to include('Removing 1 leftover command container for app-job')
+    expect(docker.commands).to include("docker container rm --force #{docker.container_id('rascal-app-job-run-0123abcd')}")
+  end
+
   it 'keeps volumes unless asked to remove them' do
     docker.volume_exists('rascal-app-job-cache')
 

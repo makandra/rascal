@@ -498,6 +498,23 @@ module Rascal
             expect(environment.env_variables).to include('A' => 'a')
           end
 
+          it 'resolves references in the .rascal block, flattening lists of commands' do
+            environment = from_config(<<~YAML, 'job')
+              .setup:
+                script:
+                  - bundle install
+                  - bin/rails db:create
+              .rascal:
+                before_shell:
+                  - !reference [.setup, script]
+                  - echo ready
+              job:
+                image: job-image:latest
+            YAML
+
+            expect(environment.before_shell).to eq ['bundle install', 'bin/rails db:create', 'echo ready']
+          end
+
           it 'lets a job replace a reference from its template as a whole' do
             environment = from_config(<<~YAML, 'job')
               .vars:

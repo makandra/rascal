@@ -223,7 +223,9 @@ rascal run rspec -- bash -c 'bin/rails db:migrate && bundle exec rspec spec/mode
 ```
 
 `rascal run` exits with the command's exit status, or with 128 plus the signal number if it was
-killed, so scripts and agents can rely on it. Its output is the command's output, plus a few lines
+killed, so scripts and agents can rely on it. If you stop rascal, for example with a timeout, it
+removes the command's container. Files the command created in the project may then still belong to
+root, until the next command gives them back. Its output is the command's output, plus a few lines
 from rascal when it downloads images or starts services.
 
 For an interactive shell, like for a Rails console or a debugger, use `rascal shell rspec`. It runs

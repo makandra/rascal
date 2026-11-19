@@ -17,8 +17,8 @@ module Rascal
     # __rascal_wait_for HOST TIMEOUT_SECONDS PORT...
     WAIT_FOR_FUNCTION = <<~BASH.gsub(/\n\s*/, ' ').strip
       __rascal_wait_for() {
-        local host=$1 timeout=$2 try port; shift 2;
-        for ((try = 0; try < timeout * 10; try++)); do
+        local host=$1 timeout=$2 deadline=$((SECONDS + $2)) port; shift 2;
+        while ((SECONDS < deadline)); do
           for port in "$@"; do (exec 3<>"/dev/tcp/$host/$port") 2>/dev/null && return; done;
           sleep 0.1;
         done;
@@ -52,7 +52,7 @@ module Rascal
 
     def run_shell
       started_services = start
-      run_in_container(script('bash', started_services), tty: true)
+      run_in_container(script('bash', started_services), tty: true).tap { report_stopped_services }
     end
 
     # Runs a single command in the environment, without a TTY, and returns its
@@ -65,10 +65,11 @@ module Rascal
     # e.g. `bash -c "foo && bar"` to run something the shell must interpret.
     def run_command(*command)
       started_services = start
-      run_in_container(script(Shellwords.join(command), started_services), tty: false)
+      run_in_container(script(Shellwords.join(command), started_services), tty: false).tap { report_stopped_services }
     end
 
     def clean(clean_volumes: false)
+      @container.clean_runs
       @services.each(&:clean)
       @network.clean
       @volumes.each(&:clean) if clean_volumes
@@ -90,6 +91,15 @@ module Rascal
       @warnings.each { |warning| stderr.puts("Warning: #{warning}") }
       download_missing
       start_services
+    end
+
+    # A service that stopped, typically because of bad settings, makes commands fail in
+    # confusing ways, so point to its output.
+    def report_stopped_services
+      @services.reject(&:running?).each do |service|
+        stderr.puts("Warning: Service #{service.aliases.first} is not running anymore. See why with `docker logs #{service.container.prefixed_name}`, " \
+                    "then fix its settings and run `rascal clean #{@name}`.")
+      end
     end
 
     def raise_problems

@@ -40,6 +40,10 @@ module Rascal
       end
     end
 
+    def running?
+      @container.running?
+    end
+
     def clean
       @container.clean
     end

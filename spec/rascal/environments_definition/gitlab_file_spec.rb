@@ -181,6 +181,10 @@ module Rascal
         expect { load("include: ci/broken.yml\n") }.to raise_error(Rascal::Error, /\ACould not read ci\/broken.yml: .*line 2/)
       end
 
+      it 'allows symbols, like GitLab' do
+        expect(load("job:\n  variables:\n    MODE: :fast\n").to_h).to eq('job' => { 'variables' => { 'MODE' => :fast } })
+      end
+
       it 'refuses YAML that would create Ruby objects' do
         expect { load("job: !ruby/object:Object {}\n") }.to raise_error(Rascal::Error, /Tried to load unspecified class: Object/)
       end

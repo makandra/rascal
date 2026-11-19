@@ -75,7 +75,7 @@ describe 'rascal run' do
 
     def container_script
       run_rascal!('run', 'job', '--', 'rake')
-      docker.history.last.reject { |part| part.is_a?(Hash) }.last
+      docker.history.reverse.detect { |command| command.include?('run') && command.include?('container') }.reject { |part| part.is_a?(Hash) }.last
     end
 
     it 'first waits until services it started accept connections on one of their exposed TCP ports' do
@@ -159,7 +159,7 @@ describe 'rascal run' do
 
     def docker_run_command
       run_rascal!('run', 'job', '--', 'bundle', 'install')
-      docker.commands.last
+      docker.commands.grep(/container run/).last
     end
 
     it "gives the container the host's SSH agent and known hosts when the .rascal block enables it" do
@@ -212,7 +212,7 @@ describe 'rascal run' do
       result = run_rascal!('run', 'job', '--', 'true')
 
       expect(result.stderr).to include('Warning: ssh_agent is enabled, but there is no SSH agent at SSH_AUTH_SOCK.')
-      expect(docker.commands.last).not_to include('ssh-agent.sock')
+      expect(docker.commands.grep(/container run/).last).not_to include('ssh-agent.sock')
     end
 
   end

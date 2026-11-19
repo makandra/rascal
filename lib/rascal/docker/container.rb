@@ -1,9 +1,14 @@
+require 'securerandom'
+
 module Rascal
   module Docker
     class Container
+      # Names of one-off containers for commands end with this and a random suffix.
+      RUN_SUFFIX = '-run-'
+
       include IOHelper
 
-      attr_reader :image
+      attr_reader :image, :prefixed_name
 
       def initialize(name, image)
         @name = name
@@ -80,11 +85,30 @@ module Rascal
         )
       end
 
+      # Runs a one-off container for a command. If rascal gets a signal, like when a script
+      # or an agent gives up on a command, it removes the container, which would keep running otherwise.
       def run_and_attach(*command, env: {}, network: nil, volumes: [], working_dir: nil, allow_failure: false, tty: true)
+        run_name = "#{@prefixed_name}#{RUN_SUFFIX}#{SecureRandom.hex(4)}"
+        remove_on_signal(run_name) do
+          run_container(run_name, *command, env: env, network: network, volumes: volumes, working_dir: working_dir, allow_failure: allow_failure, tty: tty)
+        end
+      end
+
+      # Removes one-off containers left over from commands that were killed.
+      def clean_runs
+        ids = Docker.interface.run('container', 'ps', '--all', '--quiet', '--filter', "name=^/#{@prefixed_name}#{RUN_SUFFIX}", output: :text).to_s.split
+        return if ids.empty?
+
+        say "Removing #{ids.size} leftover command container#{'s' if ids.size > 1} for #{@name}"
+        Docker.interface.run('container', 'rm', '--force', *ids)
+      end
+
+      def run_container(run_name, *command, env:, network:, volumes:, working_dir:, allow_failure:, tty:)
         Docker.interface.run_and_attach(
           'container',
           'run',
           '--rm',
+          '--name', run_name,
           '-a', 'STDOUT',
           '-a', 'STDERR',
           *(['-a', 'STDIN', '--interactive', '--tty'] if tty),
@@ -133,6 +157,20 @@ module Rascal
       end
 
       private
+
+      def remove_on_signal(run_name)
+        previous_handlers = %w[INT TERM HUP].to_h do |signal|
+          handler = Signal.trap(signal) do
+            pid = Process.spawn('docker', 'container', 'rm', '--force', run_name, out: File::NULL, err: File::NULL)
+            Process.wait(pid)
+            exit(128 + Signal.list.fetch(signal))
+          end
+          [signal, handler]
+        end
+        yield
+      ensure
+        previous_handlers&.each { |signal, handler| Signal.trap(signal, handler) }
+      end
 
       def pull
         Docker.interface.run(
