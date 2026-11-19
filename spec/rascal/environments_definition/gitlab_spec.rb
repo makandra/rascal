@@ -1,10 +1,26 @@
+require 'tmpdir'
+
 module Rascal
   module EnvironmentsDefinition
     describe Gitlab do
 
-      def definition(yaml)
-        config_path = double(read: yaml, parent: double(to_s: '/path/to/repo', basename: 'repo'))
-        described_class.new(config_path)
+      around do |example|
+        Dir.mktmpdir do |dir|
+          @tmp_dir = Pathname.new(dir)
+          example.run
+        end
+      end
+
+      # Writes the config to a project directory called "repo", or another name.
+      def definition(yaml, project: 'repo')
+        project_dir = @tmp_dir.join(project)
+        project_dir.mkpath
+        project_dir.join('.gitlab-ci.yml').write(yaml)
+        described_class.new(project_dir.join('.gitlab-ci.yml'))
+      end
+
+      def project_dir(project = 'repo')
+        @tmp_dir.join(project).to_s
       end
 
       def from_config(yaml, name)
@@ -116,7 +132,7 @@ module Rascal
 
           expect(environment.volumes.size).to eq 2
           expect(environment.volumes.collect(&:to_param)).to match_array [
-            '/path/to/repo:/repo',
+            "#{project_dir}:/repo",
             'rascal-repo-job-builds:/builds'
           ]
         end
@@ -130,7 +146,7 @@ module Rascal
               image: job-1-image:latest
           YAML
 
-          expect(environment.volumes.first.to_param).to eq '/path/to/repo:/my-repo'
+          expect(environment.volumes.first.to_param).to eq "#{project_dir}:/my-repo"
           expect(environment.working_dir).to eq '/my-repo'
         end
 
@@ -379,7 +395,10 @@ module Rascal
                 extends: .template
             YAML
 
-            expect(environment.problems).to eq ['.template: !reference [.missing, services] could not be found.']
+            expect(environment.problems).to eq [
+              'job: !reference [.missing, services] could not be found. Set the config in the `.rascal` block ' \
+              '(`.rascal: jobs: job:`), or hide the job with `hide: true` there.'
+            ]
           end
 
           it 'points to includes rascal cannot read when config is missing' do
@@ -421,6 +440,127 @@ module Rascal
               job:
                 image: job-image:latest
             YAML
+          end
+
+        end
+
+        describe '!reference' do
+
+          it 'resolves references, also nested ones, after extends like GitLab' do
+            environment = from_config(<<~YAML, 'job')
+              .base:
+                services:
+                  - name: postgres:15
+                    alias: db
+              .rspec:
+                extends: .base
+              .variables:
+                shared:
+                  A: a
+                more: !reference [.variables, shared]
+              job:
+                image: job-image:latest
+                services: !reference [.rspec, services]
+                variables: !reference [.variables, more]
+            YAML
+
+            expect(environment.problems).to eq []
+            expect(environment.services.collect(&:aliases)).to eq [['db']]
+            expect(environment.env_variables).to include('A' => 'a')
+          end
+
+          it 'lets a job replace a reference from its template as a whole' do
+            environment = from_config(<<~YAML, 'job')
+              .vars:
+                A: a
+              .template:
+                variables: !reference [.vars]
+                services: !reference [.missing, services]
+              job:
+                extends: .template
+                image: job-image:latest
+                variables:
+                  B: b
+                services:
+                  - redis:7
+            YAML
+
+            expect(environment.problems).to eq []
+            expect(environment.env_variables).to include('B' => 'b')
+            expect(environment.env_variables.keys).not_to include('A')
+          end
+
+          it 'ignores references in keys rascal does not use, like script' do
+            environment = from_config(<<~YAML, 'job')
+              include:
+                - project: group/templates
+                  file: ci.yml
+              job:
+                image: job-image:latest
+                script:
+                  - !reference [.shared, script]
+                  - rake
+            YAML
+
+            expect(environment.problems).to eq []
+          end
+
+          it 'reports references in default: and global variables for each job' do
+            environment = from_config(<<~YAML, 'job')
+              default:
+                services: !reference [.missing, services]
+              variables: !reference [.missing, variables]
+              job:
+                image: job-image:latest
+            YAML
+
+            expect(environment.problems).to contain_exactly(/job: !reference \[\.missing, services\] could not be found/, /job: !reference \[\.missing, variables\] could not be found/)
+          end
+
+          it 'reports circular references, and references that are not lists' do
+            environment = from_config(<<~YAML, 'job')
+              .a:
+                services: !reference [.b, services]
+              .b:
+                services: !reference [.a, services]
+              job:
+                image: !reference .not-a-list
+                services: !reference [.a, services]
+            YAML
+
+            expect(environment.problems).to contain_exactly(
+              'job: !reference needs a list of keys, like `!reference [.template, services]`.',
+              'job: !reference [.a, services] references itself, directly or through other references.',
+            )
+          end
+
+          it 'mentions skipped includes when a reference cannot be found' do
+            environment = from_config(<<~YAML, 'job')
+              include:
+                - project: group/templates
+                  file: ci.yml
+              job:
+                image: job-image:latest
+                services: !reference [.shared, services]
+            YAML
+
+            expect(environment.problems.first).to include('could not be found. It may come from an include rascal cannot read (project: group/templates, file: ci.yml)')
+          end
+
+        end
+
+        describe 'spec: inputs' do
+
+          it 'reports inputs in images as a problem and in variables as a warning, since rascal does not support them' do
+            environment = from_config(<<~YAML, 'job')
+              job:
+                image: ruby:$[[ inputs.ruby ]]
+                variables:
+                  STAGE: $[[ inputs.stage ]]
+            YAML
+
+            expect(environment.problems).to eq ["The image of job 'job' (ruby:$[[ inputs.ruby ]]) uses `spec: inputs:` (`$[[ inputs.name ]]`), which rascal does not support. Set the value in the `.rascal` block."]
+            expect(environment.warnings).to eq ['Variable STAGE uses `spec: inputs:` (`$[[ inputs.name ]]`), which rascal does not support. Set the value in the `.rascal` block.']
           end
 
         end
@@ -922,17 +1062,16 @@ module Rascal
 
       describe 'a typical config' do
 
-        let(:definition) do
-          config_path = double(read: File.read(File.expand_path('../../fixtures/typical.gitlab-ci.yml', __dir__)), parent: double(to_s: '/path/to/app', basename: 'app'))
-          described_class.new(config_path)
+        let(:typical) do
+          definition(File.read(File.expand_path('../../fixtures/typical.gitlab-ci.yml', __dir__)), project: 'app')
         end
 
         it 'lists the jobs' do
-          expect(definition.available_environment_names).to eq ['checks', 'rspec']
+          expect(typical.available_environment_names).to eq ['checks', 'rspec']
         end
 
         it 'builds the environment for the test job' do
-          environment = definition.environment('rspec')
+          environment = typical.environment('rspec')
 
           expect(environment.container.image).to eq 'registry.example.com/app/test-env:1.2.3'
           expect(environment.env_variables).to include(
@@ -944,13 +1083,13 @@ module Rascal
             'REDIS_HOST' => 'redis',
           )
           expect(environment.services.collect { |s| [s.aliases.first, s.container.image] }).to eq [
-            ['postgresql', 'postgres:17.5'],
+            ['db', 'postgres:16'],
             ['redis', 'redis:7.0'],
           ]
           expect(environment.services.first.command).to eq ['postgres', '-c', 'fsync=off']
           expect(environment.before_shell).to eq ['bundle check || bundle install', 'bin/rails db:create db:migrate']
           expect(environment.volumes.collect(&:to_param)).to match_array [
-            '/path/to/app:/repo',
+            "#{project_dir('app')}:/repo",
             'rascal-app-rspec-builds:/builds',
             'rascal-app-rspec-cache:/cache',
           ]

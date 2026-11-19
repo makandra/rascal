@@ -110,10 +110,12 @@ From the combined config, rascal uses `image`, `services` and `variables`. It ig
 `before_script`, `cache`, `rules` and everything else that only matters to a GitLab runner. Use
 `before_shell` in the `.rascal` block to prepare the environment instead.
 
-rascal reads local files from `include:` (including wildcards and nested includes), resolves
-`!reference` tags, and skips a header document with `spec:`. It cannot read includes from other
-projects, URLs, templates or components. If a job misses config because of that, rascal says so, and
-you can add the missing config in the `.rascal` block.
+rascal reads local files from `include:`, including wildcards and nested includes, and resolves
+`!reference` tags in the keys it uses. It cannot read includes from other projects, URLs, templates or
+components, and it cannot evaluate `rules:` on includes, so it includes local files regardless (or
+skips them if they are missing). If a job misses config because of that, rascal says so, and you can
+add the missing config in the `.rascal` block. A file may start with a header document with `spec:`,
+but rascal does not interpolate `$[[ inputs ]]`.
 
 Services may be given as a plain image name (`- postgres:15`). Without an `alias`, a service is
 reachable under the host names GitLab derives from its image, like `postgres`.

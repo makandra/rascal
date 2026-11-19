@@ -31,8 +31,8 @@ stages:
 
 .service-containers:
   - &postgres
-    name: postgres:17.5
-    alias: postgresql
+    name: postgres:16
+    alias: db
     command: ['postgres', '-c', 'fsync=off']
   - &redis
     name: redis:7.0

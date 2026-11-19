@@ -11,6 +11,12 @@ module Rascal
       # GitLab's limit for nested `extends:`.
       MAX_EXTENDS_DEPTH = 10
 
+      INPUTS_ADVICE = "`spec: inputs:` (`$[[ inputs.name ]]`), which rascal does not support. " \
+                      "Set the value in the `.rascal` block."
+
+      # GitLab's documented limit for nested `!reference` tags.
+      MAX_REFERENCE_DEPTH = 10
+
       class << self
         def detect(path)
           if path.directory?
@@ -70,7 +76,7 @@ module Rascal
           next if key.start_with?('.') || GLOBAL_KEYS.include?(key) || GLOBAL_DEFAULT_KEYS.include?(key)
           next unless job_config.is_a?(Hash)
 
-          problems = [key, *extends_chain(key)].flat_map { |name| @file.job_problems.fetch(name, []) }
+          problems = []
           begin
             job_config = resolve_extends(key)
           rescue Error => e
@@ -81,24 +87,74 @@ module Rascal
           rascal_job_config = hash_or_empty(@rascal_environment_config[key])
           # The .rascal block overrides the job, which overrides `default:`.
           # Variables are resolved separately, see #variable_layers.
-          config = Config.new(deep_merge(
+          config = deep_merge(
             inherit_default(job_config),
             @rascal_config.except('variables'),
             rascal_job_config.except('variables'),
-          ), key)
-          next if config.get('hide', false)
+          )
+          next if config['hide']
 
-          Job.new(key, config.get('name', key), config, variable_layers(job_config, rascal_job_config), problems)
+          # Like GitLab, resolve !reference tags after `extends:`. Only in the keys rascal uses,
+          # so a reference into an unreadable include in `script:` does not get in the way.
+          resolve = ->(value) { resolve_references(value, key, problems) }
+          %w[image services].each { |used_key| config[used_key] = resolve.call(config[used_key]) if config.key?(used_key) }
+          config['services'] = Array(config['services']).flatten(1) if config.key?('services')
+          variable_layers = variable_layers(job_config, rascal_job_config, resolve)
+
+          Job.new(key, config.fetch('name', key).to_s, Config.new(config, key), variable_layers, problems)
         end
       end
 
-      # The names of all templates a job extends, directly or through other templates.
-      def extends_chain(key, seen = [])
-        config = @info[key]
-        return [] unless config.is_a?(Hash)
+      # Replaces !reference tags in `value` with what they point to, after `extends:`
+      # (see Gitlab::Ci::Config::Yaml::Tags::Resolver). Adds a problem for each one that
+      # cannot be resolved.
+      def resolve_references(value, job_key, problems, in_progress = [])
+        if GitlabFile.reference?(value)
+          resolve_reference(value[GitlabFile::REFERENCE_KEY], job_key, problems, in_progress)
+        elsif value.is_a?(Hash)
+          value.to_h { |key, nested| [key, resolve_references(nested, job_key, problems, in_progress)] }
+        elsif value.is_a?(Array)
+          value.collect { |nested| resolve_references(nested, job_key, problems, in_progress) }
+        else
+          value
+        end
+      end
 
-        Array(config['extends']).collect(&:to_s).flat_map do |base|
-          seen.include?(base) ? [] : [base, *extends_chain(base, [*seen, base])]
+      def resolve_reference(location, job_key, problems, in_progress)
+        unless location.is_a?(Array) && location.any? && location.none? { |key| key.is_a?(Hash) || key.is_a?(Array) }
+          problems << "#{job_key}: !reference needs a list of keys, like `!reference [.template, services]`."
+          return
+        end
+
+        location = location.collect(&:to_s)
+        description = "!reference [#{location.join(', ')}]"
+        if in_progress.include?(location)
+          problems << "#{job_key}: #{description} references itself, directly or through other references."
+        elsif in_progress.size >= MAX_REFERENCE_DEPTH
+          problems << "#{job_key}: #{description} is nested too deeply."
+        elsif (target = referenced_value(location)).nil?
+          problems << "#{job_key}: #{description} could not be found. #{skipped_includes_hint}" \
+                      "Set the config in the `.rascal` block (`.rascal: jobs: #{job_key}:`), or hide the job with `hide: true` there."
+        else
+          return resolve_references(target, job_key, problems, [*in_progress, location])
+        end
+        nil
+      end
+
+      # The value at a location like [.template, services], after `extends:`.
+      def referenced_value(location)
+        first, *rest = location
+        rest.inject(extended_config(first)) { |current, key| current.is_a?(Hash) ? current[key] : nil }
+      end
+
+      def extended_config(key)
+        @extended_configs ||= {}
+        @extended_configs.fetch(key) do
+          @extended_configs[key] = begin
+            resolve_extends(key)
+          rescue Error
+            @info[key]
+          end
         end
       end
 
@@ -158,15 +214,14 @@ module Rascal
       # Gitlab::Ci::Variables::Helpers.merge_variables), so they form one layer.
       # The .rascal block adds its own layers on top, so it can extend a job's
       # variables, like `RUBYOPT: $RUBYOPT -W:deprecated`.
-      def variable_layers(job_config, rascal_job_config)
-        global_variables = hash_or_empty(@info['variables'])
+      def variable_layers(job_config, rascal_job_config, resolve)
+        global_variables = hash_or_empty(resolve.call(@info['variables']))
         global_variables = global_variables.slice(*inherited_keys(job_config, 'variables', global_variables.keys))
+        default_variables = hash_or_empty(resolve.call(hash_or_empty(@info['default'])['variables'])) # not supported by GitLab, kept for compatibility
         [
-          global_variables
-            .merge(hash_or_empty(hash_or_empty(@info['default'])['variables'])) # not supported by GitLab, kept for compatibility
-            .merge(hash_or_empty(job_config['variables'])),
-          hash_or_empty(@rascal_config['variables']),
-          hash_or_empty(rascal_job_config['variables']),
+          global_variables.merge(default_variables).merge(hash_or_empty(resolve.call(job_config['variables']))),
+          hash_or_empty(resolve.call(@rascal_config['variables'])),
+          hash_or_empty(resolve.call(rascal_job_config['variables'])),
         ]
       end
 
@@ -203,6 +258,9 @@ module Rascal
         undefined = variables.undefined_references
         undefined = undefined.slice(*only) if only
         warnings.concat(undefined_variable_warnings(undefined))
+        resolved.slice(*(only || resolved.keys)).each do |name, value|
+          warnings << "Variable #{name} uses #{INPUTS_ADVICE}" if value.include?('$[[')
+        end
         resolved
       rescue Error => e
         problems << e.message
@@ -234,6 +292,11 @@ module Rascal
 
           problems << "Job '#{job.key}' has no image. #{skipped_includes_hint}Set `image:` in the job, in `default:`, " \
                       "or in the `.rascal` block (`.rascal: jobs: #{job.key}: image:`)."
+          return
+        end
+
+        if image.to_s.include?('$[[')
+          problems << "The image of job '#{job.key}' (#{image}) uses #{INPUTS_ADVICE}"
           return
         end
 
@@ -276,27 +339,8 @@ module Rascal
         end
       end
 
-      def deep_merge(hash1, hash2, *other)
-        result = {}
-        if hash1.is_a?(Hash) && hash2.is_a?(Hash)
-          hash1.each do |key1, value1|
-            if hash2.has_key?(key1)
-              result[key1] = deep_merge(value1, hash2[key1])
-            else
-              result[key1] = value1
-            end
-          end
-          hash2.each do |key2, value2|
-            result[key2] ||= value2
-          end
-        else
-          result = hash2
-        end
-        if other.any?
-          deep_merge(result, *other)
-        else
-          result
-        end
+      def deep_merge(*hashes)
+        hashes.inject { |result, hash| GitlabFile.deep_merge(hash_or_empty(result), hash_or_empty(hash)) }
       end
 
       def hash_or_empty(value)
@@ -312,6 +356,9 @@ module Rascal
           raw_image = service_config['name'].to_s
           image = if raw_image.empty?
             problems << "A service of job '#{job.key}' has no image. Set `name:` for each service."
+            nil
+          elsif raw_image.include?('$[[')
+            problems << "The service #{raw_image} of job '#{job.key}' uses #{INPUTS_ADVICE}"
             nil
           else
             expand_name(service_variables, raw_image, problems) do |undefined|

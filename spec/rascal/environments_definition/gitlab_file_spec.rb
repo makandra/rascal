@@ -74,6 +74,44 @@ module Rascal
           ]
         end
 
+        it 'matches wildcards like GitLab, including dotfiles and subdirectories with **, but not the including file' do
+          write('ci/a.yml', "job-a:\n  image: a\n")
+          write('ci/.hidden.yml', "job-hidden:\n  image: hidden\n")
+          write('ci/sub/b.yml', "job-b:\n  image: b\n")
+          write('ci/main.yml', "include: 'ci/*.yml'\njob-main:\n  image: main\n")
+
+          expect(load("include: ci/main.yml\n").to_h.keys).to contain_exactly('job-a', 'job-hidden', 'job-main')
+          expect(load("include: 'ci/**.yml'\n").to_h.keys).to contain_exactly('job-a', 'job-hidden', 'job-b', 'job-main')
+          expect(load("include: 'nothing/*.yml'\njob:\n  image: job\n").to_h.keys).to eq ['job']
+        end
+
+        it 'skips a missing file whose include has rules, since rascal cannot evaluate them' do
+          file = load(<<~YAML)
+            include:
+              - local: ci/optional.yml
+                rules:
+                  - exists: [ci/optional.yml]
+            job:
+              image: job-image
+          YAML
+
+          expect(file.to_h.keys).to eq ['job']
+          expect(file.skipped_includes).to eq [{ 'local' => 'ci/optional.yml', 'rules' => [{ 'exists' => ['ci/optional.yml'] }] }]
+        end
+
+        it 'complains about files that include each other' do
+          write('ci/a.yml', "include: ci/b.yml\n")
+          write('ci/b.yml', "include: ci/a.yml\n")
+
+          expect { load("include: ci/a.yml\n") }.to raise_error(Rascal::Error, 'ci/a.yml includes itself, directly or through other files.')
+        end
+
+        it 'refuses to include files outside the project' do
+          @root.join('../outside.yml').write("job:\n  image: outside\n")
+
+          expect { load("include: ../outside.yml\n") }.to raise_error(Rascal::Error, 'The local include ../outside.yml is outside the project.')
+        end
+
         it 'complains about a local include that does not exist, like GitLab' do
           expect { load("include: ci/missing.yml\n") }.to raise_error(Rascal::Error, 'The local include ci/missing.yml does not exist. Paths are relative to the project root.')
         end
@@ -82,60 +120,59 @@ module Rascal
 
       describe '!reference' do
 
-        it 'resolves references, also nested ones and ones into included files' do
-          write('ci/base.yml', <<~YAML)
-            .services:
-              postgres:
-                - name: postgres:15
-                  alias: db
-          YAML
-
+        it 'keeps references as markers, to be resolved after extends' do
           config = load(<<~YAML).to_h
-            include: ci/base.yml
-            .variables:
-              shared:
-                A: a
-              more: !reference [.variables, shared]
             job:
               services: !reference [.services, postgres]
-              variables: !reference [.variables, more]
           YAML
 
-          expect(config['job']).to eq(
-            'services' => [{ 'name' => 'postgres:15', 'alias' => 'db' }],
-            'variables' => { 'A' => 'a' },
-          )
+          expect(config['job']).to eq('services' => { '!reference' => ['.services', 'postgres'] })
         end
 
-        it 'reports a missing reference as a problem of the job' do
-          file = load(<<~YAML)
+        it 'keeps the anchor of a reference, so aliases get the marker too' do
+          config = load(<<~YAML).to_h
+            .template:
+              variables: &shared !reference [.base, variables]
             job:
-              image: job-image
-              services: !reference [.missing, services]
+              variables: *shared
           YAML
 
-          expect(file.to_h['job']).to eq('image' => 'job-image', 'services' => nil)
-          expect(file.job_problems['job']).to eq ['job: !reference [.missing, services] could not be found.']
+          expect(config['job']).to eq('variables' => { '!reference' => ['.base', 'variables'] })
         end
 
       end
 
-      it 'uses the config after a header document with spec:' do
-        config = load(<<~YAML).to_h
-          spec:
-            inputs:
-              stage:
-                default: test
-          ---
-          job:
-            image: job-image
-        YAML
+      describe 'documents' do
 
-        expect(config).to eq('job' => { 'image' => 'job-image' })
+        it 'uses the config after a header document with spec:' do
+          config = load(<<~YAML).to_h
+            spec:
+              inputs:
+                stage:
+                  default: test
+            ---
+            job:
+              image: job-image
+          YAML
+
+          expect(config).to eq('job' => { 'image' => 'job-image' })
+        end
+
+        it 'uses the first document without a spec: header, and ignores empty documents, like GitLab' do
+          expect(load("job:\n  image: first\n---\n").to_h).to eq('job' => { 'image' => 'first' })
+          expect(load("job:\n  image: first\n---\njob:\n  image: second\n").to_h).to eq('job' => { 'image' => 'first' })
+        end
+
+      end
+
+      it 'explains YAML errors, naming the file' do
+        write('ci/broken.yml', "job:\n  image: [unclosed\n")
+
+        expect { load("include: ci/broken.yml\n") }.to raise_error(Rascal::Error, /\ACould not read ci\/broken.yml: .*line 2/)
       end
 
       it 'refuses YAML that would create Ruby objects' do
-        expect { load("job: !ruby/object:Object {}\n") }.to raise_error(Psych::DisallowedClass)
+        expect { load("job: !ruby/object:Object {}\n") }.to raise_error(Rascal::Error, /Tried to load unspecified class: Object/)
       end
 
     end
