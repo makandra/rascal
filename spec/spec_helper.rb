@@ -1,5 +1,7 @@
 require 'rascal'
 
+Dir[File.expand_path('support/**/*.rb', __dir__)].sort.each { |file| require file }
+
 # See http://rubydoc.info/gems/rspec-core/RSpec/Core/Configuration
 RSpec.configure do |config|
   config.expect_with :rspec do |expectations|

@@ -175,6 +175,46 @@ If `--volumes` is given, also remove all cached volumes.
 Update all images for the given job, or all jobs.
 
 
+## Working on rascal
+
+You need Ruby and a running Docker daemon. Install the dependencies with `bundle install`.
+
+rascal has three kinds of tests:
+
+| Tests | Location | What they cover | Speed |
+|---|---|---|---|
+| Unit specs | `spec/rascal/` | Parsing CI configs, resolving variables, and other logic. Most tests belong here. | Fast |
+| Features | `features/` | The command line, with a mocked Docker that records which `docker` commands rascal calls. | Fast |
+| Integration specs | `spec/integration/` | The real `rascal` executable against a real Docker daemon. | About 20 seconds, plus pulling small images on the first run |
+
+Run them like this:
+
+```sh
+bundle exec rake                        # everything, like CI does
+bundle exec rspec --tag ~integration    # only the fast specs
+bundle exec rspec --tag integration     # only the integration specs
+bundle exec cucumber                    # only the features
+```
+
+The integration specs fail with an explanation when Docker is not running. They do not skip, so a
+green run always means everything was tested.
+
+Integration specs exist for key paths and for behavior that only real Docker can show, like a job
+reaching its services by their alias, or exit statuses passing through. Do not add one for every
+variation of a CI config. Cover those with unit specs instead. Every spec in `spec/integration/` is
+tagged with `integration: true` automatically.
+
+Each integration spec creates a project directory named `rascal-it-<random>` in the system's temp
+directory, and removes it together with its containers, networks and volumes afterwards. If you abort
+a run, you can remove leftovers with:
+
+```sh
+docker ps --all --filter name=rascal-rascal-it- --quiet | xargs -r docker rm --force
+docker network ls --filter name=rascal-rascal-it- --quiet | xargs -r docker network rm
+docker volume ls --filter name=rascal-rascal-it- --quiet | xargs -r docker volume rm
+```
+
+
 ## License
 
 The gem is available as open source under the terms of the [MIT License](https://opensource.org/licenses/MIT).
