@@ -10,17 +10,19 @@ module Rascal
     # Docker Desktop's path for the host's SSH agent. Sockets from macOS cannot be mounted directly.
     DOCKER_DESKTOP_SSH_AGENT_SOCKET = '/run/host-services/ssh-auth.sock'
 
-    # How long to wait for services to accept connections before running the command anyway.
-    SERVICE_TIMEOUT_SECONDS = 30
+    # How long to wait by default for a service to accept connections before running the command anyway.
+    DEFAULT_SERVICES_TIMEOUT = 30
 
-    # A bash function that waits until a host accepts TCP connections on a port.
+    # A bash function that waits until a host accepts TCP connections on one of the given ports:
+    # __rascal_wait_for HOST TIMEOUT_SECONDS PORT...
     WAIT_FOR_FUNCTION = <<~BASH.gsub(/\n\s*/, ' ').strip
       __rascal_wait_for() {
-        for ((__rascal_try = 0; __rascal_try < #{SERVICE_TIMEOUT_SECONDS * 10}; __rascal_try++)); do
-          (exec 3<>"/dev/tcp/$1/$2") 2>/dev/null && return;
+        local host=$1 timeout=$2 try port; shift 2;
+        for ((try = 0; try < timeout * 10; try++)); do
+          for port in "$@"; do (exec 3<>"/dev/tcp/$host/$port") 2>/dev/null && return; done;
           sleep 0.1;
         done;
-        echo "rascal: Service $1 does not accept connections on port $2 after #{SERVICE_TIMEOUT_SECONDS} seconds, continuing anyway." >&2;
+        echo "rascal: Service $host does not accept connections on port $* after $timeout seconds, continuing anyway. If it listens on another port, set HEALTHCHECK_TCP_PORT in its variables. If it needs more time, set services_timeout in the .rascal block." >&2;
       }
     BASH
 
@@ -30,8 +32,9 @@ module Rascal
     # `problems` prevent the environment from starting, but not from being cleaned.
     # `warnings` are shown before starting it.
     # With `ssh_agent`, the host's SSH agent and known hosts are available in the container,
-    # so it can fetch private dependencies over SSH.
-    def initialize(full_name, name:, image:, env_variables: {}, services: [], volumes: [], before_shell: [], after_shell: [], working_dir: nil, problems: [], warnings: [], ssh_agent: true)
+    # so it can fetch private dependencies over SSH. `services_timeout` is how many seconds to
+    # wait for services to accept connections.
+    def initialize(full_name, name:, image:, env_variables: {}, services: [], volumes: [], before_shell: [], after_shell: [], working_dir: nil, problems: [], warnings: [], ssh_agent: false, services_timeout: DEFAULT_SERVICES_TIMEOUT)
       @name = name
       @network = Docker::Network.new(full_name)
       @container = Docker::Container.new(full_name, image)
@@ -44,11 +47,12 @@ module Rascal
       @problems = problems
       @warnings = warnings
       @ssh_agent = ssh_agent
+      @services_timeout = services_timeout
     end
 
     def run_shell
-      start
-      run_in_container(script('bash'), tty: true)
+      started_services = start
+      run_in_container(script('bash', started_services), tty: true)
     end
 
     # Runs a single command in the environment, without a TTY, and returns its
@@ -60,8 +64,8 @@ module Rascal
     # to bash, so arguments may contain spaces and shell metacharacters. Use
     # e.g. `bash -c "foo && bar"` to run something the shell must interpret.
     def run_command(*command)
-      start
-      run_in_container(script(Shellwords.join(command)), tty: false)
+      started_services = start
+      run_in_container(script(Shellwords.join(command), started_services), tty: false)
     end
 
     def clean(clean_volumes: false)
@@ -80,6 +84,7 @@ module Rascal
 
     private
 
+    # Returns the services it had to start.
     def start
       raise_problems
       @warnings.each { |warning| stderr.puts("Warning: #{warning}") }
@@ -105,15 +110,16 @@ module Rascal
 
     # The bash script that runs the given command in the container:
     #
-    # 1. Waits until all services accept connections, like a GitLab runner does.
+    # 1. Waits until the services it just started accept connections, like a GitLab runner does.
+    #    Services that were already running are ready.
     # 2. Runs before_shell, the command and after_shell, and exits with the command's status.
     #    Without saving it, an `after_shell` entry would determine the exit status, and
     #    failures would go unnoticed.
     # 3. Gives files the container created in the project back to the host user, since
     #    the container usually runs as root.
-    def script(command)
+    def script(command, started_services)
       [
-        *wait_for_services,
+        *wait_for(started_services),
         *@before_shell,
         command,
         '__rascal_status=$?',
@@ -123,28 +129,35 @@ module Rascal
       ].join(';')
     end
 
-    def wait_for_services
-      waits = @services.flat_map do |service|
-        service.ports.collect { |port| "__rascal_wait_for #{Shellwords.escape(service.aliases.first)} #{port}" }
+    def wait_for(services)
+      waits = services.filter_map do |service|
+        ports = service.ports
+        "__rascal_wait_for #{Shellwords.escape(service.aliases.first)} #{@services_timeout.to_i} #{ports.join(' ')}" if ports.any?
       end
       waits.any? ? [WAIT_FOR_FUNCTION, *waits] : []
     end
 
+    # Only when the project appears in the container as owned by the host user. With rootless
+    # Docker, the host user is root in the container, and with Docker Desktop for Mac,
+    # ownership is mapped already.
     def fix_ownership
       uid = Process.uid
-      return [] if uid == 0 || @working_dir.nil?
+      return [] if uid == 0 || @working_dir.nil? || RUBY_PLATFORM.include?('darwin')
 
-      ["find #{Shellwords.escape(@working_dir)} -xdev -user 0 -exec chown -h #{uid}:#{Process.gid} {} + 2>/dev/null"]
+      dir = Shellwords.escape(@working_dir)
+      ["[ \"$(stat -c %u #{dir} 2>/dev/null)\" = #{uid} ] && find #{dir} -xdev -user 0 -exec chown -h #{uid}:#{Process.gid} {} + 2>/dev/null"]
     end
 
     # Volumes and variables that give the container access to the host's SSH agent.
     def ssh_agent_access
-      socket = ENV['SSH_AUTH_SOCK']
-      return [[], {}] unless @ssh_agent && socket && !socket.empty?
+      return [[], {}] unless @ssh_agent
 
-      if RUBY_PLATFORM.include?('darwin')
+      socket = ENV['SSH_AUTH_SOCK'].to_s
+      if Docker.interface.run('info', '--format', '{{.OperatingSystem}}', output: :text, allow_failure: true).to_s.include?('Docker Desktop')
+        # Docker Desktop runs in a VM and provides the host's agent at a fixed path.
         socket = DOCKER_DESKTOP_SSH_AGENT_SOCKET
-      elsif !File.socket?(socket)
+      elsif socket.empty? || !File.socket?(socket)
+        stderr.puts('Warning: ssh_agent is enabled, but there is no SSH agent at SSH_AUTH_SOCK. Start one with `eval $(ssh-agent)` and `ssh-add`.')
         return [[], {}]
       end
 
@@ -163,7 +176,7 @@ module Rascal
 
     def start_services
       @network.create unless @network.exists?
-      @services.each { |s| s.start_if_stopped(network: @network) }
+      @services.select { |service| service.start_if_stopped(network: @network) }
     end
   end
 end

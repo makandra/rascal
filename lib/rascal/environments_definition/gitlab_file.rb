@@ -1,3 +1,4 @@
+require 'open3'
 require 'yaml'
 
 module Rascal
@@ -100,16 +101,28 @@ module Rascal
         end
       end
 
-      # Like GitLab, `*` matches within a directory, `**` across directories, and both match
-      # dotfiles. A pattern without matches includes nothing, and never the including file.
+      # Like GitLab (see Repository#search_files_by_wildcard_path), `*` matches within a directory,
+      # `**` across directories, `**/` also matches no directory, and all of them match dotfiles.
+      # A pattern without matches includes nothing, and never the including file.
       def wildcard_paths(location, including_path)
         pattern = location.sub(%r{\A/+}, '')
-        regexp = Regexp.new('\A' + Regexp.escape(pattern).gsub('\*\*', '.*').gsub('\*', '[^/]*') + '\z')
-        Dir.glob('**/*', File::FNM_DOTMATCH, base: @root.to_s).sort
+        regexp = Regexp.new('\A' + Regexp.escape(pattern).gsub('\*\*/', '(.*?/)?').gsub('\*\*', '.*').gsub('\*', '[^/]*') + '\z')
+        project_files
           .select { |relative| relative.match?(regexp) }
           .collect { |relative| @root.join(relative) }
           .select { |path| path.file? && path != including_path }
           .each { |path| inside_root!(path, location) }
+      end
+
+      # The files GitLab would see: those in Git, plus new ones that are not ignored. Without Git,
+      # all files.
+      def project_files
+        @project_files ||= begin
+          output, status = Open3.capture2('git', '-C', @root.to_s, 'ls-files', '-z', '--cached', '--others', '--exclude-standard', err: File::NULL)
+          status.success? ? output.split("\0").sort : Dir.glob('**/*', File::FNM_DOTMATCH, base: @root.to_s).sort
+        rescue SystemCallError
+          Dir.glob('**/*', File::FNM_DOTMATCH, base: @root.to_s).sort
+        end
       end
 
       def inside_root!(path, location)

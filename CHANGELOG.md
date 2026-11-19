@@ -23,11 +23,13 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
 - Explain what is wrong when a job has no image, its image uses an undefined variable, or its
   `extends:` templates cannot be resolved.
   `rascal clean` and `rascal environments` still work for such jobs, and `rascal update --all` skips them.
-- Wait until services accept connections on their exposed ports before running a command, like a
-  GitLab runner does.
+- After starting services, wait until each accepts connections on one of its exposed ports, or
+  on `HEALTHCHECK_TCP_PORT` from its variables, before running the command. Set the timeout
+  (30 seconds by default) with `services_timeout` in the `.rascal` block.
 - Give files that commands create in the project back to the host user. They used to belong to root.
-- Make the host's SSH agent and known hosts available in the container, so it can fetch private
-  dependencies over SSH. Turn this off with `ssh_agent: false` in the `.rascal` block.
+- With `ssh_agent: true` in the `.rascal` block, make the host's SSH agent and known hosts available
+  in the container, so it can fetch private dependencies over SSH. It is off by default, since any
+  code in the container can use the agent's keys while a command runs.
 - Read settings for rascal from a `.rascal.yml` next to `.gitlab-ci.yml`, which extends the `.rascal`
   block. Use it for settings that should not be part of the project's CI config.
 - Suggest `docker login` when an image cannot be pulled for lack of credentials, and explain where

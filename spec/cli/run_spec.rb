@@ -78,7 +78,7 @@ describe 'rascal run' do
       docker.history.last.reject { |part| part.is_a?(Hash) }.last
     end
 
-    it 'first waits until services accept connections on their exposed TCP ports' do
+    it 'first waits until services it started accept connections on one of their exposed TCP ports' do
       gitlab_ci_config(<<~YAML)
         .rascal:
           before_shell:
@@ -86,12 +86,43 @@ describe 'rascal run' do
         job:
           image: job-image:latest
           services:
-            - name: redis:7
-              alias: redis
+            - name: mysql:5.7
+              alias: db
       YAML
-      docker.image_exists('redis:7', exposed_ports: ['6379/tcp', '53/udp'])
+      docker.image_exists('mysql:5.7', exposed_ports: ['3306/tcp', '33060/tcp', '53/udp'])
 
-      expect(container_script).to match(/\A__rascal_wait_for\(\) \{.*\};__rascal_wait_for redis 6379;bundle check;rake;/)
+      expect(container_script).to match(/\A__rascal_wait_for\(\) \{.*\};__rascal_wait_for db 30 3306 33060;bundle check;rake;/)
+    end
+
+    it 'waits for HEALTHCHECK_TCP_PORT instead, and as long as services_timeout says' do
+      gitlab_ci_config(<<~YAML)
+        .rascal:
+          services_timeout: 120
+        job:
+          image: job-image:latest
+          services:
+            - name: mysql:5.7
+              alias: db
+              variables:
+                HEALTHCHECK_TCP_PORT: '3306'
+      YAML
+      docker.image_exists('mysql:5.7', exposed_ports: ['3306/tcp', '33060/tcp'])
+
+      expect(container_script).to include(';__rascal_wait_for db 120 3306;')
+    end
+
+    it 'does not wait for services that were already running' do
+      gitlab_ci_config(<<~YAML)
+        job:
+          image: job-image:latest
+          services:
+            - name: mysql:5.7
+              alias: db
+      YAML
+      docker.image_exists('mysql:5.7', exposed_ports: ['3306/tcp'])
+      docker.container_exists('rascal-app-job_db', running: true)
+
+      expect(container_script).not_to include('__rascal_wait_for')
     end
 
     it 'gives files the container created in the project back to the host user' do
@@ -101,7 +132,9 @@ describe 'rascal run' do
           image: job-image:latest
       YAML
 
-      expect(container_script).to end_with(";find /repo -xdev -user 0 -exec chown -h #{Process.uid}:#{Process.gid} {} + 2>/dev/null;exit $__rascal_status")
+      expect(container_script).to end_with(
+        ";[ \"$(stat -c %u /repo 2>/dev/null)\" = #{Process.uid} ] && find /repo -xdev -user 0 -exec chown -h #{Process.uid}:#{Process.gid} {} + 2>/dev/null;exit $__rascal_status"
+      )
     end
 
   end
@@ -129,9 +162,11 @@ describe 'rascal run' do
       docker.commands.last
     end
 
-    it "gives the container the host's SSH agent and known hosts" do
+    it "gives the container the host's SSH agent and known hosts when the .rascal block enables it" do
       ENV['SSH_AUTH_SOCK'] = @agent_socket
       gitlab_ci_config(<<~YAML)
+        .rascal:
+          ssh_agent: true
         job:
           image: job-image:latest
       YAML
@@ -143,21 +178,41 @@ describe 'rascal run' do
       )
     end
 
-    it 'does without when there is no agent, or when the .rascal block turns it off' do
-      gitlab_ci_config(<<~YAML)
-        job:
-          image: job-image:latest
-      YAML
-      expect(docker_run_command).not_to include('ssh')
-
-      ENV['SSH_AUTH_SOCK'] = @agent_socket
+    it "uses Docker Desktop's path for the agent, since it runs Docker in a VM" do
+      ENV['SSH_AUTH_SOCK'] = '/private/tmp/com.apple.launchd.abc/Listeners'
+      docker.operating_system = 'Docker Desktop'
       gitlab_ci_config(<<~YAML)
         .rascal:
-          ssh_agent: false
+          ssh_agent: true
         job:
           image: job-image:latest
       YAML
+
+      expect(docker_run_command).to include('-v /run/host-services/ssh-auth.sock:/run/rascal/ssh-agent.sock')
+    end
+
+    it 'does not give the container the SSH agent unless enabled, since code in the container could use its keys' do
+      ENV['SSH_AUTH_SOCK'] = @agent_socket
+      gitlab_ci_config(<<~YAML)
+        job:
+          image: job-image:latest
+      YAML
+
       expect(docker_run_command).not_to include('ssh')
+    end
+
+    it 'warns when the SSH agent is enabled but there is none' do
+      gitlab_ci_config(<<~YAML)
+        .rascal:
+          ssh_agent: true
+        job:
+          image: job-image:latest
+      YAML
+
+      result = run_rascal!('run', 'job', '--', 'true')
+
+      expect(result.stderr).to include('Warning: ssh_agent is enabled, but there is no SSH agent at SSH_AUTH_SOCK.')
+      expect(docker.commands.last).not_to include('ssh-agent.sock')
     end
 
   end

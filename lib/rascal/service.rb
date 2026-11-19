@@ -11,22 +11,32 @@ module Rascal
       @command = [*command]
     end
 
-    # The TCP ports the service's image exposes, which rascal waits for before running commands.
+    # The TCP ports rascal waits for before running commands, of which one must accept
+    # connections. Like the GitLab runner, takes HEALTHCHECK_TCP_PORT from the service's
+    # variables, or else the ports the image exposes.
     def ports
-      @container.exposed_tcp_ports
+      if (port = @env_variables['HEALTHCHECK_TCP_PORT'].to_s[/\A\d+\z/])
+        [port.to_i]
+      else
+        @container.exposed_tcp_ports
+      end
     end
 
     def download_missing
       @container.download_missing
     end
 
+    # Returns whether it started the service.
     def start_if_stopped(network: nil)
-      unless @container.running?
+      if @container.running?
+        false
+      else
         @container.remove_if_network_missing(network)
         if (container_id = @container.id)
           network.disconnect(container_id)
         end
         @container.start(network: network, network_aliases: @aliases, volumes: @volumes, env: @env_variables, command: @command)
+        true
       end
     end
 

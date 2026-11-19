@@ -11,7 +11,7 @@ class DockerMockInterface < Rascal::Docker::Interface
   NETWORK_ID = 'deadbeef'
 
   attr_reader :history, :images, :containers, :volumes
-  attr_accessor :attached_exit_code
+  attr_accessor :attached_exit_code, :operating_system
 
   def initialize(*)
     @attached_exit_code = 0
@@ -21,6 +21,7 @@ class DockerMockInterface < Rascal::Docker::Interface
     @volumes = Hash.new { |h, k| h[k] = {} }
     @counter = 0
     @pull_failures = {}
+    @operating_system = 'Ubuntu 24.04 LTS'
     super
   end
 
@@ -86,6 +87,8 @@ class DockerMockInterface < Rascal::Docker::Interface
 
   def output_for(*command)
     case command.join(' ')
+    when /\Adocker info /
+      @operating_system
     when /image inspect (\S*)/
       # Like docker, an array with one entry for an existing image.
       (@images.key?($1) ? [@images[$1]] : []).to_json

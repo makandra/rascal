@@ -50,7 +50,7 @@ module Rascal
 
       # `variable_layers` are the job's variable definitions, from the lowest to the highest
       # priority. See #variable_layers. `problems` keep the job's environment from starting.
-      Job = Struct.new(:key, :name, :config, :variable_layers, :problems)
+      Job = Struct.new(:key, :name, :config, :variable_layers, :problems, :warnings)
 
 
       def initialize(config_path)
@@ -108,10 +108,15 @@ module Rascal
           # so a reference into an unreadable include in `script:` does not get in the way.
           resolve = ->(value) { resolve_references(value, key, problems) }
           %w[image services].each { |used_key| config[used_key] = resolve.call(config[used_key]) if config.key?(used_key) }
-          config['services'] = Array(config['services']).flatten(1) if config.key?('services')
-          variable_layers = variable_layers(job_config, rascal_job_config, resolve)
+          # A reference inside the list of services may resolve to a list of services.
+          config['services'] = Array(config['services']).flat_map { |service| service.is_a?(Array) ? service : [service] } if config.key?('services')
+          # A variable a reference would define might not be needed, or the .rascal block
+          # might define it, so that is only worth a warning.
+          warnings = []
+          resolve_variables = ->(value) { resolve_references(value, key, warnings) }
+          variable_layers = variable_layers(job_config, rascal_job_config, resolve_variables)
 
-          Job.new(key, config.fetch('name', key).to_s, Config.new(config, key), variable_layers, problems)
+          Job.new(key, config.fetch('name', key).to_s, Config.new(config, key), variable_layers, problems, warnings)
         end
       end
 
@@ -242,7 +247,7 @@ module Rascal
         shared_volumes = [build_repo_volume(docker_repo_dir), build_builds_volume(full_name)]
         variables = GitlabVariables.new(predefined_variables(job, docker_repo_dir), *job.variable_layers)
         problems = job.problems.dup
-        warnings = []
+        warnings = job.warnings.dup
         Environment.new(full_name,
           name: job.name,
           image: image_name(job, variables, problems),
@@ -255,7 +260,8 @@ module Rascal
           before_shell: config.get('before_shell', []),
           after_shell: config.get('after_shell', []),
           working_dir: docker_repo_dir,
-          ssh_agent: config.get('ssh_agent', true) != false,
+          ssh_agent: config.get('ssh_agent', false) == true,
+          services_timeout: config.get('services_timeout', Environment::DEFAULT_SERVICES_TIMEOUT),
           problems: problems.uniq,
           warnings: warnings.uniq,
         )

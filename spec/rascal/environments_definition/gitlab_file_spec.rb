@@ -82,7 +82,17 @@ module Rascal
 
           expect(load("include: ci/main.yml\n").to_h.keys).to contain_exactly('job-a', 'job-hidden', 'job-main')
           expect(load("include: 'ci/**.yml'\n").to_h.keys).to contain_exactly('job-a', 'job-hidden', 'job-b', 'job-main')
+          expect(load("include: 'ci/**/*.yml'\n").to_h.keys).to contain_exactly('job-a', 'job-hidden', 'job-b', 'job-main')
           expect(load("include: 'nothing/*.yml'\njob:\n  image: job\n").to_h.keys).to eq ['job']
+        end
+
+        it 'only matches wildcards against files Git does not ignore, like the files GitLab sees' do
+          system('git', 'init', '-q', @root.to_s, exception: true)
+          write('.gitignore', "ignored/\n")
+          write('ci/a.yml', "job-a:\n  image: a\n")
+          write('ignored/b.yml', "job-b:\n  image: b\n")
+
+          expect(load("include: '**/*.yml'\n").to_h.keys).to eq ['job-a']
         end
 
         it 'skips a missing file whose include has rules, since rascal cannot evaluate them' do

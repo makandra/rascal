@@ -69,6 +69,8 @@ module Rascal
           end
         when :id
           stdout[/[0-9a-f]+/]
+        when :text
+          stdout.strip
         when :ignore
           nil
         else

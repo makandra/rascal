@@ -41,8 +41,14 @@ describe 'rascal run' do
       socket = File.join(dir, 'agent.sock')
       agent_pid = Process.spawn('ssh-agent', '-D', '-a', socket, out: File::NULL, err: File::NULL)
       begin
-        sleep 0.1 until File.socket?(socket)
-        create_job_project
+        50.times { File.socket?(socket) ? break : sleep(0.1) }
+        expect(File.socket?(socket)).to be(true), 'ssh-agent did not start'
+        create_project(<<~YAML)
+          .rascal:
+            ssh_agent: true
+          job:
+            image: #{IntegrationHelpers::JOB_IMAGE}
+        YAML
 
         result = rascal!('run', 'job', '--', 'bash', '-c', 'test -S "$SSH_AUTH_SOCK" && echo "agent at $SSH_AUTH_SOCK"', env: { 'SSH_AUTH_SOCK' => socket })
 

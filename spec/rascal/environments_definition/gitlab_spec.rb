@@ -534,16 +534,32 @@ module Rascal
             expect(environment.problems).to eq []
           end
 
-          it 'reports references in default: and global variables for each job' do
+          it 'reports references in default: for each job' do
             environment = from_config(<<~YAML, 'job')
               default:
                 services: !reference [.missing, services]
-              variables: !reference [.missing, variables]
               job:
                 image: job-image:latest
             YAML
 
-            expect(environment.problems).to contain_exactly(/job: !reference \[\.missing, services\] could not be found/, /job: !reference \[\.missing, variables\] could not be found/)
+            expect(environment.problems).to match [/job: !reference \[\.missing, services\] could not be found/]
+          end
+
+          it 'only warns about missing references in variables, which the .rascal block may define' do
+            environment = from_config(<<~YAML, 'job')
+              .rascal:
+                variables:
+                  DB: fallback
+              variables: !reference [.missing, variables]
+              job:
+                image: job-image:latest
+                variables:
+                  DB: !reference [.remote, variables, DB]
+            YAML
+
+            expect(environment.problems).to eq []
+            expect(environment.warnings).to contain_exactly(/job: !reference \[\.missing, variables\] could not be found/, /job: !reference \[\.remote, variables, DB\] could not be found/)
+            expect(environment.env_variables).to include('DB' => 'fallback')
           end
 
           it 'reports circular references, and references that are not lists' do
