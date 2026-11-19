@@ -1,6 +1,7 @@
 module Rascal
   module EnvironmentsDefinition
     autoload :Gitlab,          'rascal/environments_definition/gitlab'
+    autoload :GitlabFile,      'rascal/environments_definition/gitlab_file'
     autoload :GitlabVariables, 'rascal/environments_definition/gitlab_variables'
 
     class << self

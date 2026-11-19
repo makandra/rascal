@@ -1,5 +1,3 @@
-require 'yaml'
-
 module Rascal
   module EnvironmentsDefinition
     class Gitlab
@@ -47,7 +45,8 @@ module Rascal
 
 
       def initialize(config_path)
-        @info = stringify_keys(hash_or_empty(parse_definition(config_path.read)))
+        @file = GitlabFile.new(config_path)
+        @info = @file.to_h
         @repo_dir = config_path.parent
         @base_name = @repo_dir.basename
         @rascal_config = hash_or_empty(@info['.rascal']).dup
@@ -66,20 +65,12 @@ module Rascal
 
       private
 
-      def parse_definition(yaml)
-        if Psych::VERSION >= '3.1'
-          YAML.safe_load(yaml, aliases: true)
-        else
-          YAML.safe_load(yaml, [], [], true)
-        end
-      end
-
       def jobs
         @jobs ||= @info.filter_map do |key, job_config|
           next if key.start_with?('.') || GLOBAL_KEYS.include?(key) || GLOBAL_DEFAULT_KEYS.include?(key)
           next unless job_config.is_a?(Hash)
 
-          problems = []
+          problems = [key, *extends_chain(key)].flat_map { |name| @file.job_problems.fetch(name, []) }
           begin
             job_config = resolve_extends(key)
           rescue Error => e
@@ -101,6 +92,16 @@ module Rascal
         end
       end
 
+      # The names of all templates a job extends, directly or through other templates.
+      def extends_chain(key, seen = [])
+        config = @info[key]
+        return [] unless config.is_a?(Hash)
+
+        Array(config['extends']).collect(&:to_s).flat_map do |base|
+          seen.include?(base) ? [] : [base, *extends_chain(base, [*seen, base])]
+        end
+      end
+
       # Merges the job's `extends:` templates into it, like GitLab does
       # (see Gitlab::Ci::Config::Extendable::Entry).
       def resolve_extends(key, ancestors = [])
@@ -115,10 +116,9 @@ module Rascal
 
         bases = Array(config['extends']).collect(&:to_s)
         if (unknown = bases.reject { |base| @info.key?(base) }).any?
-          raise Error, "#{key}: unknown keys in `extends` (#{unknown.join(', ')}). " \
-                       "If #{unknown.size == 1 ? 'it is' : 'they are'} defined in a file from `include:`, note that rascal " \
-                       "only reads local includes. Set the missing config in the `.rascal` block " \
-                       "(`.rascal: jobs: #{ancestors.first || key}:`), or hide the job with `hide: true` there."
+          raise Error, "#{key}: unknown keys in `extends` (#{unknown.join(', ')}). #{skipped_includes_hint}" \
+                       "Set the missing config in the `.rascal` block (`.rascal: jobs: #{ancestors.first || key}:`), " \
+                       "or hide the job with `hide: true` there."
         elsif (invalid = bases.reject { |base| @info[base].is_a?(Hash) }).any?
           raise Error, "#{key}: invalid base hashes in `extends` (#{invalid.join(', ')})"
         end
@@ -231,7 +231,7 @@ module Rascal
           # A job whose templates could not be resolved lacks its image as a consequence.
           return if job.problems.any?
 
-          problems << "Job '#{job.key}' has no image. Set `image:` in the job, in `default:`, " \
+          problems << "Job '#{job.key}' has no image. #{skipped_includes_hint}Set `image:` in the job, in `default:`, " \
                       "or in the `.rascal` block (`.rascal: jobs: #{job.key}: image:`)."
           return
         end
@@ -252,6 +252,14 @@ module Rascal
         else
           expanded
         end
+      end
+
+      # Explains config that may be missing because rascal cannot read some includes.
+      def skipped_includes_hint
+        return '' if @file.skipped_includes.empty?
+
+        descriptions = @file.skipped_includes.collect { |entry| entry.is_a?(Hash) ? entry.to_a.collect { |k, v| "#{k}: #{v}" }.join(', ') : entry.to_s }
+        "It may come from an include rascal cannot read (#{descriptions.join('; ')}), since rascal only reads local includes. "
       end
 
       def undefined_variable_advice(name)
@@ -292,15 +300,6 @@ module Rascal
 
       def hash_or_empty(value)
         value.is_a?(Hash) ? value : {}
-      end
-
-      # YAML turns keys like `2.6:` into numbers. GitLab treats all keys as strings.
-      def stringify_keys(value)
-        case value
-        when Hash then value.to_h { |key, nested| [key.to_s, stringify_keys(nested)] }
-        when Array then value.collect { |nested| stringify_keys(nested) }
-        else value
-        end
       end
 
       def build_services(job, name, services, volumes: [], variables:, problems:, warnings:)

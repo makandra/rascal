@@ -9,7 +9,7 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
 - Read `.gitlab-ci.yml` files with global `variables:` or `workflow:`, which rascal used to mistake
   for jobs. `include:` and `stages:` are ignored as well. The deprecated top-level `image`,
   `services`, `cache`, `before_script` and `after_script` now act like the same keys in `default:`.
-- Support `extends:` and `inherit:`.
+- Support `extends:`, `inherit:`, `!reference`, local files from `include:`, and files with a `spec:` header.
 - Support services given as a plain image name, services with several aliases (`alias: db,postgres`),
   and services without an alias, which get the host names GitLab derives from their image.
 - Expand variables in variables, image names and service names, like GitLab does

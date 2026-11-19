@@ -364,11 +364,38 @@ module Rascal
             expect(definition.available_environment_names).to eq ['circular', 'deploy', 'job']
             expect(definition.environment('circular').problems).to eq ['circular: circular dependency detected in `extends`']
             expect(definition.environment('deploy').problems).to eq [
-              'deploy: unknown keys in `extends` (.deploy-template). If it is defined in a file from `include:`, ' \
-              'note that rascal only reads local includes. Set the missing config in the `.rascal` block ' \
+              'deploy: unknown keys in `extends` (.deploy-template). Set the missing config in the `.rascal` block ' \
               '(`.rascal: jobs: deploy:`), or hide the job with `hide: true` there.'
             ]
             expect(definition.environment('job').problems).to eq []
+          end
+
+          it 'reports problems of the templates a job extends' do
+            environment = from_config(<<~YAML, 'job')
+              .template:
+                image: job-image:latest
+                services: !reference [.missing, services]
+              job:
+                extends: .template
+            YAML
+
+            expect(environment.problems).to eq ['.template: !reference [.missing, services] could not be found.']
+          end
+
+          it 'points to includes rascal cannot read when config is missing' do
+            environment = from_config(<<~YAML, 'job')
+              include:
+                - project: group/templates
+                  file: ci.yml
+              job:
+                script: rake
+            YAML
+
+            expect(environment.problems).to eq [
+              "Job 'job' has no image. It may come from an include rascal cannot read (project: group/templates, file: ci.yml), " \
+              "since rascal only reads local includes. Set `image:` in the job, in `default:`, or in the `.rascal` block " \
+              "(`.rascal: jobs: job: image:`)."
+            ]
           end
 
           it 'reports templates nested too deeply as a problem, like GitLab' do
@@ -837,7 +864,8 @@ module Rascal
               rules:
                 - if: $CI_COMMIT_BRANCH
             include:
-              - local: ci/other.yml
+              - project: group/templates
+                file: ci.yml
             image: global-image:latest
             services:
               - name: global-service-image
