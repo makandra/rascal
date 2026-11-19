@@ -4,6 +4,21 @@ All notable changes to this project will be documented here.
 
 Rascal follows semantic versioning. This has little consequence pre 1.0, so expect breaking changes.
 
+## Unreleased
+
+- Read `.gitlab-ci.yml` files with global `variables:` or `workflow:`, which rascal used to mistake for jobs.
+  The same goes for `include:` and the deprecated top-level `image`, `services`, `cache`,
+  `before_script` and `after_script`, which now act like the same keys in `default:`.
+- Expand variables in variables, image names and service names, like GitLab does
+  (`$NAME`, `${NAME}`, `%NAME%`, `$$`). Global `variables:` apply to every job.
+- Predefine the variables `CI`, `GITLAB_CI`, `CI_JOB_NAME`, `CI_PROJECT_NAME`, `CI_PROJECT_DIR` and
+  `CI_BUILDS_DIR`. **This may change how your app behaves in a rascal environment**, if it checks for
+  `CI` or `GITLAB_CI`. Override them in the `.rascal` block if needed.
+- Let a job override `default:`, like GitLab does. Rascal used to do it the other way around.
+- Explain what is wrong when a job has no image, or its image uses an undefined variable.
+- `rascal environments` lists jobs without an image, which only fail when used.
+
+
 ## 0.4.1 (2026-07-30)
 
 - Recreate a service container whose network no longer exists, instead of failing

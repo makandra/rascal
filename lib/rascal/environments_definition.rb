@@ -1,6 +1,7 @@
 module Rascal
   module EnvironmentsDefinition
-    autoload :Gitlab, 'rascal/environments_definition/gitlab'
+    autoload :Gitlab,          'rascal/environments_definition/gitlab'
+    autoload :GitlabVariables, 'rascal/environments_definition/gitlab_variables'
 
     class << self
       def detect(working_dir)

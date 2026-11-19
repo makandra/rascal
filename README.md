@@ -37,7 +37,7 @@ Install with
 *This is an early alpha version. Use at your own risk.*
 
 Only the parsing of `.gitlab-ci.yml` is currently supported, and only a subset of the possible syntax
-will be properly interpreted.
+will be properly interpreted. See [What rascal reads from .gitlab-ci.yml](#what-rascal-reads-from-gitlab-ciyml).
 
 
 ## Usage
@@ -90,6 +90,37 @@ rspec:
 ```
 
 Then, in your project root, run `rascal shell rspec`.
+
+
+### What rascal reads from .gitlab-ci.yml
+
+Every top-level key is a job, except for GitLab's global keywords (`default`, `include`, `stages`,
+`variables`, `workflow`, and the deprecated `image`, `services`, `cache`, `before_script` and
+`after_script`) and keys starting with a dot.
+
+For each job, rascal combines its config like GitLab does, then applies the `.rascal` block on top:
+
+1. `default:` (and the deprecated top-level keys)
+2. the job itself, where each key replaces the same key from `default:` as a whole
+3. the `.rascal` block
+4. the job's entry under `.rascal: jobs:`
+
+From the combined config, rascal uses `image`, `services` and `variables`. It ignores `script`,
+`before_script`, `cache`, `rules` and everything else that only matters to a GitLab runner. Use
+`before_shell` in the `.rascal` block to prepare the environment instead. `extends:`, `include:` and
+`!reference` are not supported yet.
+
+Variables are resolved like in a GitLab job:
+
+- Job variables override global `variables:`, and the `.rascal` block overrides both.
+- Values, image names and service names may reference variables as `$NAME`, `${NAME}` or `%NAME%`.
+  `$$` stands for a literal `$`. A variable defined as `{ value: ..., expand: false }` is used as is.
+- A variable that references its own name, like `PATH: $PATH:/more`, extends its earlier definition.
+- rascal predefines `CI=true`, `GITLAB_CI=true`, `CI_JOB_NAME`, `CI_PROJECT_NAME`, `CI_BUILDS_DIR`, and
+  `CI_PROJECT_DIR` (the path of your project in the container, `/repo` by default). Override them in
+  the `.rascal` block if needed.
+- An image name that references an undefined variable is an error. In variables, an undefined
+  `$NAME` becomes an empty string, like in GitLab.
 
 
 ### Commands

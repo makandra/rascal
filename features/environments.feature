@@ -29,3 +29,26 @@ Feature: Run "environments"
     When I run `rascal environments`
     Then the exit status should not be 0
       And stderr should contain "Could not find an environment definition"
+
+
+  Scenario: Ignore global keywords like variables and workflow
+    Given the following gitlab-ci config:
+      """
+      variables:
+        IMAGE_TAG: '1.0'
+      workflow:
+        rules:
+          - if: $CI_COMMIT_BRANCH
+      stages:
+        - test
+      default:
+        image: job-image:$IMAGE_TAG
+      job-1:
+        script: rake
+      """
+
+    When I successfully run `rascal environments`
+    Then the output should contain exactly:
+      """
+      job-1
+      """

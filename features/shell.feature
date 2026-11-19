@@ -55,8 +55,8 @@ Feature: Run "shell"
       """
 
     When I successfully run `rascal shell job`
-    Then docker /container create --name rascal-aruba-job_service-1 -v .*:/repo -v rascal-aruba-job-builds:/builds -e foo=bar --network deadbeef --network-alias service-1 service-1-image:latest/ should have been called
-      And docker /container create --name rascal-aruba-job_service-2 -v .*:/repo -v rascal-aruba-job-builds:/builds -e foo=bar --network deadbeef --network-alias service-2 service-2-image:stable bin\/start/ should have been called
+    Then docker /container create --name rascal-aruba-job_service-1 -v .*:/repo -v rascal-aruba-job-builds:/builds -e CI=true -e GITLAB_CI=true -e CI_JOB_NAME=job -e CI_PROJECT_NAME=aruba -e CI_PROJECT_DIR=/repo -e CI_BUILDS_DIR=/builds -e foo=bar --network deadbeef --network-alias service-1 service-1-image:latest/ should have been called
+      And docker /container create --name rascal-aruba-job_service-2 -v .*:/repo -v rascal-aruba-job-builds:/builds -e CI=true -e GITLAB_CI=true -e CI_JOB_NAME=job -e CI_PROJECT_NAME=aruba -e CI_PROJECT_DIR=/repo -e CI_BUILDS_DIR=/builds -e foo=bar --network deadbeef --network-alias service-2 service-2-image:stable bin\/start/ should have been called
       And docker /container start 00000001/ should have been called
       And docker /container start 00000002/ should have been called
       And stdout should contain:
@@ -137,7 +137,7 @@ Feature: Run "shell"
       """
 
     When I successfully run `rascal shell job`
-    Then docker /container run --rm -a STDOUT -a STDERR -a STDIN --interactive --tty -w /repo -v .*:/repo -v rascal-aruba-job-builds:/builds -e foo=bar --network deadbeef job-image:latest bash/ should have been called
+    Then docker /container run --rm -a STDOUT -a STDERR -a STDIN --interactive --tty -w /repo -v .*:/repo -v rascal-aruba-job-builds:/builds -e CI=true -e GITLAB_CI=true -e CI_JOB_NAME=job -e CI_PROJECT_NAME=aruba -e CI_PROJECT_DIR=/repo -e CI_BUILDS_DIR=/builds -e foo=bar --network deadbeef job-image:latest bash/ should have been called
 
 
   Scenario: Don't crash when there is a default group
