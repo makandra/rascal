@@ -38,13 +38,14 @@ module Rascal
       end
 
       class Bind < Base
-        def initialize(local_path, container_path)
+        def initialize(local_path, container_path, read_only: false)
           @local_path = local_path
           @container_path = container_path
+          @read_only = read_only
         end
 
         def to_param
-          "#{@local_path}:#{@container_path}"
+          "#{@local_path}:#{@container_path}#{':ro' if @read_only}"
         end
 
         def clean

@@ -11,6 +11,11 @@ module Rascal
       @command = [*command]
     end
 
+    # The TCP ports the service's image exposes, which rascal waits for before running commands.
+    def ports
+      @container.exposed_tcp_ports
+    end
+
     def download_missing
       @container.download_missing
     end

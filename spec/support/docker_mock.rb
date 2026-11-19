@@ -28,8 +28,11 @@ class DockerMockInterface < Rascal::Docker::Interface
     @history.map { |command| command.reject { |part| part.is_a?(Hash) }.join(' ') }
   end
 
-  def image_exists(name)
-    @images[name] = { id: Digest::SHA1.hexdigest("image-#{name}") }
+  def image_exists(name, exposed_ports: [])
+    @images[name] = {
+      Id: Digest::SHA1.hexdigest("image-#{name}"),
+      Config: { ExposedPorts: exposed_ports.to_h { |port| [port, {}] } },
+    }
   end
 
   def container_exists(name, running: false, network_id: nil)
@@ -73,7 +76,8 @@ class DockerMockInterface < Rascal::Docker::Interface
   def output_for(*command)
     case command.join(' ')
     when /image inspect (\S*)/
-      @images[$1].to_json
+      # Like docker, an array with one entry for an existing image.
+      (@images.key?($1) ? [@images[$1]] : []).to_json
     when /pull (\S*)/
       "[Docker mock] Pulling #{$1}"
     when /network ls.*name=\^(.*)\$/

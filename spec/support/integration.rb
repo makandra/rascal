@@ -50,13 +50,13 @@ module IntegrationHelpers
     File.write(File.join(@project_dir, '.gitlab-ci.yml'), gitlab_ci_yml)
   end
 
-  def rascal(*args)
-    stdout, stderr, status = Open3.capture3(RbConfig.ruby, "-I#{LIB}", RASCAL, *args, chdir: project_dir, stdin_data: '')
+  def rascal(*args, env: {})
+    stdout, stderr, status = Open3.capture3(env, RbConfig.ruby, "-I#{LIB}", RASCAL, *args, chdir: project_dir, stdin_data: '')
     Result.new(stdout, stderr, status)
   end
 
-  def rascal!(*args)
-    result = rascal(*args)
+  def rascal!(*args, env: {})
+    result = rascal(*args, env: env)
     unless result.success?
       raise "rascal #{args.join(' ')} failed with exit code #{result.exit_code}:\n#{result.stdout}\n#{result.stderr}"
     end

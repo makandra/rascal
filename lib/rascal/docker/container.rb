@@ -22,6 +22,13 @@ module Rascal
         end
       end
 
+      # The TCP ports the image declares with EXPOSE, like [5432] for postgres.
+      def exposed_tcp_ports
+        info = image_exists?
+        ports = info && info.dig('Config', 'ExposedPorts') || {}
+        ports.keys.filter_map { |port| port[%r{\A(\d+)/tcp\z}, 1]&.to_i }
+      end
+
       def running?
         !!container_info&.dig('State', 'Running')
       end

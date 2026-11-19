@@ -33,7 +33,7 @@ describe 'rascal shell' do
     run_rascal!('shell', 'job')
 
     expect(docker.commands.last).to match(
-      %r{\Adocker container run --rm -a STDOUT -a STDERR -a STDIN --interactive --tty -w /repo -v .*/app:/repo -v rascal-app-job-builds:/builds -e CI=true .* -e FOO=bar --network deadbeef job-image:latest bash -c bundle check;bash\z}
+      %r{\Adocker container run --rm -a STDOUT -a STDERR -a STDIN --interactive --tty -w /repo -v .*/app:/repo -v rascal-app-job-builds:/builds -e CI=true .* -e FOO=bar --network deadbeef job-image:latest bash -c bundle check;bash;}
     )
   end
 

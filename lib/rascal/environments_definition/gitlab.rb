@@ -190,6 +190,7 @@ module Rascal
           before_shell: config.get('before_shell', []),
           after_shell: config.get('after_shell', []),
           working_dir: docker_repo_dir,
+          ssh_agent: config.get('ssh_agent', true) != false,
           problems: problems.uniq,
           warnings: warnings.uniq,
         )

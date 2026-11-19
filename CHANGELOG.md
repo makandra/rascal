@@ -23,6 +23,11 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
 - Explain what is wrong when a job has no image, its image uses an undefined variable, or its
   `extends:` templates cannot be resolved.
   `rascal clean` and `rascal environments` still work for such jobs, and `rascal update --all` skips them.
+- Wait until services accept connections on their exposed ports before running a command, like a
+  GitLab runner does.
+- Give files that commands create in the project back to the host user. They used to belong to root.
+- Make the host's SSH agent and known hosts available in the container, so it can fetch private
+  dependencies over SSH. Turn this off with `ssh_agent: false` in the `.rascal` block.
 - `rascal clean` also removes the anonymous volumes of service containers, like the data volumes of
   postgres and redis, which used to pile up.
 - Job names like `2.6`, which YAML reads as numbers, work in `.rascal: jobs:`.

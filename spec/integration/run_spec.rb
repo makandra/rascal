@@ -26,6 +26,34 @@ describe 'rascal run' do
     expect(File.read(File.join(project_dir, 'from-container.txt'))).to eq "written in the container\n"
   end
 
+  it 'gives files the container created in the project to the host user' do
+    skip 'only applies when not running as root' if Process.uid == 0
+    create_job_project
+
+    rascal!('run', 'job', '--', 'bash', '-c', 'mkdir -p created/nested && touch created/nested/file')
+
+    expect(File.stat(File.join(project_dir, 'created/nested/file')).uid).to eq Process.uid
+    expect(File.stat(File.join(project_dir, 'created')).uid).to eq Process.uid
+  end
+
+  it "gives the command access to the host's SSH agent" do
+    Dir.mktmpdir do |dir|
+      socket = File.join(dir, 'agent.sock')
+      agent_pid = Process.spawn('ssh-agent', '-D', '-a', socket, out: File::NULL, err: File::NULL)
+      begin
+        sleep 0.1 until File.socket?(socket)
+        create_job_project
+
+        result = rascal!('run', 'job', '--', 'bash', '-c', 'test -S "$SSH_AUTH_SOCK" && echo "agent at $SSH_AUTH_SOCK"', env: { 'SSH_AUTH_SOCK' => socket })
+
+        expect(result.stdout).to include("agent at /run/rascal/ssh-agent.sock\n")
+      ensure
+        Process.kill('TERM', agent_pid)
+        Process.wait(agent_pid)
+      end
+    end
+  end
+
   it 'exits with the status of the command' do
     create_job_project
 
@@ -75,10 +103,9 @@ describe 'rascal run' do
   describe 'with services' do
 
     # Sends one command to Redis using bash's /dev/tcp, and prints the last line of the reply.
-    # Waits for Redis to accept connections first.
+    # Does not wait for Redis to accept connections, since rascal does that.
     def redis_command(command, reply_lines: 1)
       <<~BASH
-        for attempt in $(seq 100); do (exec 3<>/dev/tcp/redis/6379) 2>/dev/null && break; sleep 0.1; done
         exec 3<>/dev/tcp/redis/6379
         printf '%s\\r\\n' '#{command}' >&3
         for line in $(seq #{reply_lines}); do read -r -t 5 reply <&3; done

@@ -62,11 +62,14 @@ RSpec.configure do |config|
 
   config.around(:each, cli: true) do |example|
     Rascal::Docker.interface = DockerMockInterface.new
+    # Specs that need an SSH agent set one up themselves.
+    original_ssh_auth_sock = ENV.delete('SSH_AUTH_SOCK')
     Dir.mktmpdir do |tmp_dir|
       @tmp_dir = tmp_dir
       example.run
     end
   ensure
+    ENV['SSH_AUTH_SOCK'] = original_ssh_auth_sock
     Rascal::Docker.interface = nil
   end
 end
