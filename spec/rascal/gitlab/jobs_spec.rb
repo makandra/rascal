@@ -445,6 +445,23 @@ module Rascal
           expect(environment.image.name).to eq 'rascal-image:latest'
         end
 
+        it "lets the .rascal block change only the image's entrypoint, keeping the job's image" do
+          environment = from_config(<<~YAML, 'job')
+            .rascal:
+              jobs:
+                job:
+                  image:
+                    entrypoint: ['']
+            job:
+              image: registry.example.com/app:$TAG
+              variables:
+                TAG: '1.2'
+          YAML
+
+          expect(environment.image.name).to eq 'registry.example.com/app:1.2'
+          expect(environment.command_containers.entrypoint).to eq ['']
+        end
+
         it 'lets .rascal job config override the .rascal block' do
           environment = from_config(<<~YAML, 'job')
             .rascal:
@@ -496,8 +513,8 @@ module Rascal
                 OPTS: $OPTS --job
           YAML
 
-          # The job's jobs replaces the global one (Gitlab::Ci::Variables::Helpers.merge_variables),
-          # so $OPTS has no lower jobs and rascal expands it to an empty string.
+          # The job's definition replaces the global one (Gitlab::Ci::Variables::Helpers.merge_variables),
+          # so $OPTS has no lower definition and rascal expands it to an empty string.
           expect(environment.env_variables).to include('OPTS' => ' --job')
         end
 

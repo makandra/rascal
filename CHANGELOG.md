@@ -32,7 +32,8 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
   and services without an alias, which get the host names GitLab derives from their image.
 - Expand variables in variables, image names and service names, like GitLab does
   (`$NAME`, `${NAME}`, `%NAME%`, `$$`). Global `variables:` apply to every job.
-- Support `entrypoint` for a job's image.
+- Support `entrypoint` for a job's image. rascal's settings can override only the entrypoint, like
+  `jobs: rspec: image: { entrypoint: [''] }`, keeping the job's image.
 - Job names like `2.6`, which YAML reads as numbers, work in `.rascal: jobs:`.
 
 ### Working with environments
@@ -66,7 +67,7 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
 - Suggest `docker login` when an image cannot be pulled for lack of credentials, explain what to do
   when an image does not exist in its registry, and explain where rascal looked for `.gitlab-ci.yml`.
 - Point to the logs of services that stopped, like when their settings are wrong.
-- Explain each command in `rascal help <command>`.
+- Explain each command in `rascal help <command>`, which calls the argument a job, like the README.
 
 
 ## 0.4.1 (2026-07-30)

@@ -43,6 +43,7 @@ when something is missing.
 - [How it works](#how-it-works)
 - [Setting up a project](#setting-up-a-project)
 - [Working in the environment](#working-in-the-environment)
+- [Common adjustments](#common-adjustments)
 - [Tearing down](#tearing-down)
 - [Commands](#commands)
 - [Configuration](#configuration)
@@ -53,17 +54,27 @@ when something is missing.
 
 ## Installation
 
+Install rascal with a Ruby outside the project, not into the project's bundle. rascal needs neither
+the project's Ruby nor its gems, so one installation works for all projects, old and new:
+
 ```sh
-gem install rascal
+gem install rascal    # with any Ruby 3.0 or newer
 ```
 
-You need:
+Ruby version managers like mise or rbenv switch to the project's Ruby inside the project directory
+(from `.ruby-version`), and that Ruby usually does not have rascal. Then run rascal with the Ruby you
+installed it for:
 
-- Ruby 3 or newer for rascal itself. It does not need to be the project's Ruby. If a version manager
-  like mise or rbenv switches to the project's Ruby inside the project, `rascal` may be missing
-  there. Then run it with the Ruby you installed it for, like `mise exec ruby@3.4 -- rascal ...` or
-  `RBENV_VERSION=3.4.1 rascal ...`. rbenv names that Ruby in its error message. With mise, list your
-  Rubies with `mise ls ruby`, and check one with `mise exec ruby@3.4 -- gem list rascal`.
+```sh
+mise exec ruby@3.4 -- rascal run rspec -- bundle install
+RBENV_VERSION=3.4.1 rascal run rspec -- bundle install
+```
+
+`mise ls ruby` lists your Rubies, and `mise exec ruby@3.4 -- gem list rascal` checks one. rbenv
+names the Rubies that have rascal in its error message. The examples below just say `rascal`.
+
+You also need:
+
 - Docker. On macOS, Docker Desktop works.
 - Access to the registries of the project's images. For a private registry, log in first with
   `docker login registry.example.com`.
@@ -144,12 +155,12 @@ rascal run rspec -- bin/rails db:create db:schema:load
 ```
 
 Leave out steps that only make sense on a CI runner, like ones that use `CI_JOB_TOKEN` to fetch
-private repositories. Use `ssh_agent` instead (see below). Steps like
+private repositories. Use [`ssh_agent`](#private-dependencies-over-ssh) instead. Steps like
 `cp config/database.ci.yml config/database.yml` change your project directory, and may overwrite a
 file Git ignores, so look before you copy.
 
 Gems stay installed between commands if the job sets `BUNDLE_PATH` to a directory in the project,
-as most CI configs do to cache gems. Otherwise, set it in the `.rascal` block (see below).
+as most CI configs do to cache gems. Otherwise, see [Settings that need to persist](#settings-that-need-to-persist).
 
 You only need the steps for what you want to run. A model spec may need only gems and a database,
 while browser tests may also need Node packages and compiled assets. An existing `before_shell` may
@@ -196,64 +207,6 @@ echo .rascal.yml >> "$(git rev-parse --git-path info/exclude)"
 
 `.rascal.yml` overrides the `.rascal` block: its lists, like `before_shell`, replace the block's,
 and its hashes, like `variables`, are merged into the block's.
-
-### Settings that need to persist
-
-Each command runs in a new container, so set what the project needs on every command as variables
-in the `.rascal` block or `.rascal.yml`:
-
-```yaml
-variables:
-  BUNDLE_WITHOUT: deploy        # instead of `bundle config set without deploy`
-  BUNDLE_PATH: tmp/bundle       # if the job does not keep gems in the project
-```
-
-### Private dependencies over SSH
-
-If `bundle install` or `yarn install` fetches private Git repositories over SSH, enable access to
-your SSH agent:
-
-```yaml
-ssh_agent: true
-```
-
-rascal then mounts your SSH agent and your `~/.ssh/known_hosts` into the container. It does not
-mount `~/.ssh/config`, so host aliases from there do not work.
-
-To give the agent only to the commands that need it, use `--ssh-agent` instead, like
-`rascal run rspec --ssh-agent -- bundle install`. Test runs and other commands then cannot use your
-keys.
-
-**While a command runs, any code in the container can use all keys in the agent**, including
-install scripts of dependencies. With Docker Engine on Linux, you can start a separate agent that
-only holds a key with read access to your Git server, and point rascal to it:
-
-```sh
-ssh-agent -a /tmp/git-read-agent.sock > /dev/null
-SSH_AUTH_SOCK=/tmp/git-read-agent.sock ssh-add ~/.ssh/git_read_key
-SSH_AUTH_SOCK=/tmp/git-read-agent.sock rascal run rspec -- bundle install
-```
-
-Docker Desktop (on macOS, and on Linux) always provides the agent of your desktop session, with all
-its keys, and ignores `SSH_AUTH_SOCK`. If you are an AI agent and no separate agent with a limited
-key is available, ask your user before you enable `ssh_agent`.
-
-The container needs an SSH client, and must run as root (or as your user), since the agent's socket
-belongs to you.
-
-### Variables rascal cannot see
-
-GitLab sets variables like `CI_REGISTRY_IMAGE` or `CI_COMMIT_SHA`, and projects can define more in
-their CI/CD settings. rascal only knows a few of GitLab's variables (see
-[Variables](#variables)). If a job needs others, define them in the `.rascal` block:
-
-```yaml
-variables:
-  CI_REGISTRY_IMAGE: registry.example.com/group/myapp
-```
-
-rascal warns about variables that reference undefined variables, and refuses to start a job whose
-image name does.
 
 
 ## Working in the environment
@@ -335,6 +288,86 @@ The diff should only show the changes you intended. Run tests as usual, with `CI
 projects often check it elsewhere too, like for eager loading. Each Bundler command removes the
 private gems from `Gemfile.lock` again, so before you commit, restore the version you staged with
 `git checkout Gemfile.lock`.
+
+
+## Common adjustments
+
+Settings for the `.rascal` block or `.rascal.yml` that many projects need. See
+[Configuration](#configuration) for all of them.
+
+### Settings that need to persist
+
+Each command runs in a new container, so set what the project needs on every command as variables
+in the `.rascal` block or `.rascal.yml`:
+
+```yaml
+variables:
+  BUNDLE_WITHOUT: deploy        # instead of `bundle config set without deploy`
+  BUNDLE_PATH: tmp/bundle       # if the job does not keep gems in the project
+```
+
+### Private dependencies over SSH
+
+If `bundle install` or `yarn install` fetches private Git repositories over SSH, enable access to
+your SSH agent:
+
+```yaml
+ssh_agent: true
+```
+
+rascal then mounts your SSH agent and your `~/.ssh/known_hosts` into the container. It does not
+mount `~/.ssh/config`, so host aliases from there do not work.
+
+To give the agent only to the commands that need it, use `--ssh-agent` instead, like
+`rascal run rspec --ssh-agent -- bundle install`. Test runs and other commands then cannot use your
+keys.
+
+**While a command runs, any code in the container can use all keys in the agent**, including
+install scripts of dependencies. With Docker Engine on Linux, you can start a separate agent that
+only holds a key with read access to your Git server, and point rascal to it:
+
+```sh
+ssh-agent -a /tmp/git-read-agent.sock > /dev/null
+SSH_AUTH_SOCK=/tmp/git-read-agent.sock ssh-add ~/.ssh/git_read_key
+SSH_AUTH_SOCK=/tmp/git-read-agent.sock rascal run rspec -- bundle install
+```
+
+Docker Desktop (on macOS, and on Linux) always provides the agent of your desktop session, with all
+its keys, and ignores `SSH_AUTH_SOCK`. If you are an AI agent and no separate agent with a limited
+key is available, ask your user before you enable `ssh_agent`.
+
+The container needs an SSH client, and must run as root (or as your user), since the agent's socket
+belongs to you.
+
+### Variables rascal cannot see
+
+GitLab sets variables like `CI_REGISTRY_IMAGE` or `CI_COMMIT_SHA`, and projects can define more in
+their CI/CD settings. rascal only knows a few of GitLab's variables (see
+[Variables](#variables)). If a job needs others, define them in the `.rascal` block:
+
+```yaml
+variables:
+  CI_REGISTRY_IMAGE: registry.example.com/group/myapp
+```
+
+rascal warns about variables that reference undefined variables, and refuses to start a job whose
+image name does.
+
+### An image's entrypoint that gets in the way
+
+rascal runs commands through the image's entrypoint, like CI does. Some images have an entrypoint
+made for another setup, like the project's own Docker development setup, which refuses to run as
+root or expects volumes that only that setup provides. Skip it for rascal in `.rascal.yml`:
+
+```yaml
+jobs:
+  rspec:
+    image:
+      entrypoint: ['']
+```
+
+The job keeps its image. Check what the entrypoint did (`docker image inspect --format
+'{{json .Config.Entrypoint}}' <image>` shows it), and do what your commands need yourself.
 
 
 ## Tearing down
@@ -607,8 +640,8 @@ image itself, like from a `Dockerfile`, you can also build it under the name fro
 
 #### `rascal: command not found` inside a project
 
-A Ruby version manager switched to the project's Ruby, which does not have rascal. See
-[Installation](#installation).
+A Ruby version manager switched to the project's Ruby, which does not have rascal. Run rascal with
+the Ruby you installed it for, see [Installation](#installation).
 
 #### `Cannot connect to the Docker daemon` or `failed to connect to the docker API`
 
@@ -643,6 +676,20 @@ not to the container's user.)
 Enable `ssh_agent: true` (see [Private dependencies over SSH](#private-dependencies-over-ssh)), and
 make sure your agent holds a key for the Git server (`ssh-add -l`) and that `~/.ssh/known_hosts`
 knows the server.
+
+#### The image's entrypoint fails or refuses to run before your command
+
+Messages like `Refusing to run as root` come from the image's entrypoint, not from rascal or your
+command. See [An image's entrypoint that gets in the way](#an-images-entrypoint-that-gets-in-the-way).
+
+#### Tests pass, but an `after(:suite)` hook of Knapsack fails
+
+Many projects split their tests across CI machines with Knapsack, and turn it on when `CI` is set,
+which rascal sets like GitLab. Knapsack then expects files that CI provides, like
+`knapsack_rspec_report.json`, and fails the run after all tests passed. Look at how the project turns
+on Knapsack, usually in `spec/spec_helper.rb`. If only `CI` turns it on, run the tests with
+`--unset-env CI` (keeping in mind that other code may check `CI` too), or give Knapsack the file the
+message names, outside Git.
 
 #### `"bash": executable file not found`
 
