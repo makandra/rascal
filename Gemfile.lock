@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    rascal (0.5.1)
+    rascal (0.5.2)
       thor (>= 1.0.0)
 
 GEM

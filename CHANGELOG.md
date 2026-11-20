@@ -4,7 +4,7 @@ All notable changes to this project will be documented here.
 
 Rascal follows semantic versioning. This has little consequence pre 1.0, so expect breaking changes.
 
-## Unreleased
+## 0.5.2 (2026-11-20)
 
 - Run on Ruby 3.0 or newer again. 0.5.0 and 0.5.1 required Ruby 3.3, which locked out projects that
   pin an older Ruby, like Rails LTS checkouts with Ruby 3.1.
