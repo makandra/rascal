@@ -18,7 +18,7 @@ module Rascal
         method_option :ssh_agent, type: :boolean,
           desc: 'Give the container access to your SSH agent, for this command only. --no-ssh-agent keeps it away, even if the config enables it.'
       end
-      # The README that came with this version of rascal, if it is installed with it.
+      # The README that comes with this version of rascal, packaged into the gem.
       README_PATH = File.expand_path('../../../README.md', __dir__)
 
       def help(subcommand = false)
@@ -53,8 +53,7 @@ module Rascal
           For more about a command, run "rascal help COMMAND". rascal --version prints the version.
           The README explains setup, configuration and troubleshooting:
         TEXT
-        say "  #{README_PATH}" if File.file?(README_PATH)
-        say '  https://github.com/makandra/rascal#readme'
+        say "  #{README_PATH}"
         say
       end
 

@@ -18,12 +18,19 @@ describe 'rascal help' do
       "rascal clean --all --volumes",
       "rascal status JOB shows what rascal made of the job",
       "  #{Rascal::CLI::Main::README_PATH}\n",
-      "  https://github.com/makandra/rascal#readme\n",
     )
     expect(File).to exist(Rascal::CLI::Main::README_PATH)
     command_lines = result.stdout[/^Commands:\n(.*?)\n\n/m, 1].lines
     expect(command_lines.size).to eq 7
     expect(command_lines).to all(satisfy { |line| !line.include?('...') })
+  end
+
+  it 'refers to a README that is packaged into the gem' do
+    gem_root = File.expand_path('../..', __dir__)
+    files = Dir.chdir(gem_root) { Gem::Specification.load('rascal.gemspec').files }
+
+    expect(Rascal::CLI::Main::README_PATH).to eq File.join(gem_root, 'README.md')
+    expect(files).to include('README.md')
   end
 
   it 'explains each command with examples that stay on one line' do
