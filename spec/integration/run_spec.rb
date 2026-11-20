@@ -206,6 +206,25 @@ describe 'rascal run' do
       expect(after_disconnect.stdout).to include("reply: +PONG\n")
     end
 
+    it 'recreates a service container without a network whose network was removed, like after `docker network prune`, stopped or running' do
+      service = "rascal-#{project_name}-job_redis"
+      network = "rascal-#{project_name}-job"
+      lose_network = ->(stop:) do
+        rascal!('run', 'job', '--', 'true')
+        docker('container', 'stop', service) if stop
+        docker('network', 'disconnect', network, service)
+        docker('network', 'rm', network)
+      end
+
+      lose_network.call(stop: true)
+      after_stopped = rascal!('run', 'job', '--', 'bash', '-c', redis_command('PING'))
+      lose_network.call(stop: false)
+      after_running = rascal!('run', 'job', '--', 'bash', '-c', redis_command('PING'))
+
+      expect(after_stopped.stdout).to include("reply: +PONG\n")
+      expect(after_running.stdout).to include("reply: +PONG\n")
+    end
+
     it 'lets a second command wait for services that the first one is still starting' do
       create_project(<<~YAML)
         job:

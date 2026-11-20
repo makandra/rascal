@@ -39,12 +39,14 @@ class DockerMockInterface < Rascal::Docker::Interface
 
   # A container that was created, and with `running` or `exit_code` also started.
   # `error` is why Docker could not start it.
-  def container_exists(name, running: false, exit_code: nil, error: nil, network_id: nil, started_at: Time.now - 3600)
+  # `network_mode` is the network it was created with, which stays when it has no endpoints.
+  def container_exists(name, running: false, exit_code: nil, error: nil, network_id: nil, network_mode: nil, started_at: Time.now - 3600)
     @containers[name] = { id: Digest::SHA1.hexdigest("container-#{name}") }
     @containers[name][:State] = { Status: 'created', Running: false, ExitCode: error ? 127 : 0, Error: error.to_s, StartedAt: '0001-01-01T00:00:00Z' }
     @containers[name][:State] = { Status: 'running', Running: true, StartedAt: started_at.utc.iso8601(9) } if running
     @containers[name][:State] = { Status: 'exited', Running: false, ExitCode: exit_code, StartedAt: started_at.utc.iso8601(9) } if exit_code
     @containers[name][:NetworkSettings] = { Networks: { 'some-network' => { 'NetworkID' => network_id } } } if network_id
+    @containers[name][:HostConfig] = { NetworkMode: network_mode } if network_mode
   end
 
   # Lets `docker pull` of the image fail with the given error output.
@@ -112,7 +114,7 @@ class DockerMockInterface < Rascal::Docker::Interface
       new_id = "%08x" % (@counter += 1)
       @containers[$1] = { id: new_id }
       new_id
-    when /container rm (?:--volumes )?(\S*)/
+    when /container rm (?:--\S+ )*(\S+)/
       @containers.delete_if { |_name, container| container[:id] == $1 }
       $1
     when /container inspect (.*)/

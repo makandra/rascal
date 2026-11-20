@@ -62,10 +62,16 @@ module Rascal
       # help, since docker resolves the recorded id before it looks at the
       # container's current endpoints, so the container has to go. Nothing in a
       # service container is worth preserving; #start creates a new one.
+      #
+      # A container without network endpoints, like one that was never started
+      # or that an older rascal disconnected, still records its network in its
+      # network mode. Such a container may even be running, which Docker allows
+      # after its network was pruned, but it cannot be connected to another.
       def remove_if_network_missing(network)
         return unless exists?
-        attached = attached_network_ids
-        return if attached.empty? || attached.include?(network.id)
+        recorded = attached_network_ids
+        recorded = [network_mode].compact if recorded.empty?
+        return if recorded.empty? || recorded.include?(network.id)
 
         info "Removing container for #{@name}, its network no longer exists"
         remove_container
@@ -125,6 +131,12 @@ module Rascal
         Docker.interface.run('container', 'inspect', id, output: :json).first
       end
 
+      # The network the container was created with, if it is not one of Docker's own modes like `bridge`.
+      def network_mode
+        mode = inspection&.dig('HostConfig', 'NetworkMode').to_s
+        mode unless mode.empty? || %w[default bridge host none].include?(mode) || mode.start_with?('container:')
+      end
+
       # Ids of the networks the container is attached to. Empty for a container
       # that was created but never started.
       def attached_network_ids
@@ -133,9 +145,10 @@ module Rascal
       end
 
       # Also removes the container's anonymous volumes, like the data volume that
-      # the postgres and redis images declare. Named volumes are kept.
+      # the postgres and redis images declare. Named volumes are kept. Removes a
+      # running container too.
       def remove_container
-        Docker.interface.run('container', 'rm', '--volumes', id)
+        Docker.interface.run('container', 'rm', '--force', '--volumes', id)
       end
     end
   end

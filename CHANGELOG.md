@@ -8,7 +8,9 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
 
 - Fix services that were unreachable by their alias after rascal restarted their stopped container
   (with current Docker versions). rascal now connects such containers to the network again, also
-  ones that an earlier version left running without a network.
+  ones that an earlier version left running without a network. It recreates service containers
+  whose network was removed, like by `docker network prune`, also when they have no network
+  endpoints or still run.
 
 
 ## 0.5.0 (2026-11-20)

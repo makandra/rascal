@@ -75,7 +75,26 @@ describe 'starting an environment' do
       result = run_rascal!('run', 'job', '--', 'true')
 
       expect(result.stderr).to include('Removing container for app-job_service, its network no longer exists')
-      expect(docker.commands).to include("docker container rm --volumes #{old_id}", match(/container create --name rascal-app-job_service/))
+      expect(docker.commands).to include("docker container rm --force --volumes #{old_id}", match(/container create --name rascal-app-job_service/))
+    end
+
+    it 'recreates it when it has no network, but was created with one that no longer exists' do
+      docker.container_exists('rascal-app-job_service', network_mode: 'a-network-that-is-gone')
+      old_id = docker.container_id('rascal-app-job_service')
+
+      run_rascal!('run', 'job', '--', 'true')
+
+      expect(docker.commands).to include("docker container rm --force --volumes #{old_id}", match(/container create --name rascal-app-job_service/))
+    end
+
+    it 'recreates it while it runs, when it has no network and was created with one that no longer exists' do
+      docker.container_exists('rascal-app-job_service', running: true, network_mode: 'a-network-that-is-gone')
+      old_id = docker.container_id('rascal-app-job_service')
+
+      run_rascal!('run', 'job', '--', 'true')
+
+      expect(docker.commands).to include("docker container rm --force --volumes #{old_id}", match(/container create --name rascal-app-job_service/))
+      expect(docker.commands).not_to include(match(/network connect .* #{old_id}/))
     end
 
     it 'keeps it when it is attached to the current network' do

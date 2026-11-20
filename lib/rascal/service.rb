@@ -30,12 +30,12 @@ module Rascal
 
     # Returns whether it started the service.
     def start_if_stopped(network:)
+      @container.remove_if_network_missing(network)
       if @container.running?
         # Like after an earlier rascal disconnected it, see #reconnect.
         reconnect(network) unless @container.attached_to?(network)
         false
       else
-        @container.remove_if_network_missing(network)
         reconnect(network) if @container.exists?
         @container.start(network: network, network_aliases: @aliases, volumes: @volumes, env: @env_variables, command: @command)
         true
