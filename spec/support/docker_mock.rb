@@ -97,7 +97,8 @@ class DockerMockInterface < Rascal::Docker::Interface
     when /network ls.*name=\^(.*)\$/
       NETWORK_ID
     when /volume ls.*name=\^(.*)\$/
-      @volumes[$1][:id]
+      # Like docker, prints the name with --quiet.
+      $1 if @volumes.key?($1)
     when /container ps.*name=\^\/(.*)\$/
       @containers[$1][:id]
     when /container ps.*name=\^\/(\S*)\z/

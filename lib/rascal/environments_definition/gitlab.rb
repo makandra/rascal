@@ -34,23 +34,6 @@ module Rascal
         end
       end
 
-      class Config
-        def initialize(config, prefix)
-          @config = config
-          @prefix = prefix
-        end
-
-        def get(key, *default)
-          if @config.has_key?(key)
-            @config[key]
-          elsif default.size > 0
-            default.first
-          else
-            raise Error.new("missing config for '#{@prefix}.#{key}'")
-          end
-        end
-      end
-
       # `variable_layers` are the job's variable definitions, from the lowest to the highest
       # priority. See #variable_layers. `problems` keep the job's environment from starting.
       Job = Struct.new(:key, :name, :config, :variable_layers, :problems, :warnings)
@@ -126,7 +109,7 @@ module Rascal
           resolve_variables = ->(value) { resolve_references(value, key, warnings) }
           variable_layers = variable_layers(job_config, rascal_job_config, resolve_variables)
 
-          Job.new(key, config.fetch('name', key).to_s, Config.new(config, key), variable_layers, problems, warnings)
+          Job.new(key, config.fetch('name', key).to_s, config, variable_layers, problems, warnings)
         end
       end
 
@@ -257,7 +240,7 @@ module Rascal
 
       def build_environment(job)
         config = job.config
-        docker_repo_dir = config.get('repo_dir', '/repo')
+        docker_repo_dir = config.fetch('repo_dir', '/repo')
         full_name = "#{@docker_name}-#{job.name.gsub(/[^a-zA-Z0-9_.-]/, '_')}"
         shared_volumes = [build_repo_volume(docker_repo_dir), build_builds_volume(full_name)]
         variables = GitlabVariables.new(predefined_variables(job, docker_repo_dir), *job.variable_layers)
@@ -266,21 +249,29 @@ module Rascal
         Environment.new(full_name,
           name: job.name,
           image: image_name(job, variables, problems),
-          entrypoint: entrypoint(job.config.get('image', nil)),
+          entrypoint: entrypoint(job.config['image']),
           volumes: [
             *shared_volumes,
-            *build_volumes(full_name, config.get('volumes', {}))
+            *build_volumes(full_name, config.fetch('volumes', {}))
           ],
           env_variables: resolve_variables(variables, problems, warnings),
-          services: build_services(job, full_name, config.get('services', []), volumes: shared_volumes, variables: variables, problems: problems, warnings: warnings),
-          before_shell: config.get('before_shell', []),
-          after_shell: config.get('after_shell', []),
+          services: build_services(job, full_name, config.fetch('services', []), volumes: shared_volumes, variables: variables, problems: problems, warnings: warnings),
+          before_shell: config.fetch('before_shell', []),
+          after_shell: config.fetch('after_shell', []),
           working_dir: docker_repo_dir,
-          ssh_agent: [true, 'true'].include?(config.get('ssh_agent', false)),
-          services_timeout: config.get('services_timeout', Environment::DEFAULT_SERVICES_TIMEOUT),
+          ssh_agent: [true, 'true'].include?(config.fetch('ssh_agent', false)),
+          services_timeout: services_timeout(config, problems),
           problems: problems.uniq,
           warnings: [*skipped_includes_warning, *warnings].uniq,
         )
+      end
+
+      def services_timeout(config, problems)
+        value = config.fetch('services_timeout', Environment::DEFAULT_SERVICES_TIMEOUT)
+        Integer(value.to_s, 10).tap { |seconds| raise ArgumentError if seconds.negative? }
+      rescue ArgumentError
+        problems << "services_timeout must be a number of seconds, not #{value.inspect}."
+        Environment::DEFAULT_SERVICES_TIMEOUT
       end
 
       # Returns the expanded variables. Records circular references as a problem,
@@ -316,7 +307,7 @@ module Rascal
       # Problems only matter when the environment is started, so `rascal clean` can still
       # clean an environment whose image cannot be resolved.
       def image_name(job, variables, problems)
-        image = job.config.get('image', nil)
+        image = job.config['image']
         image = image['name'] if image.is_a?(Hash)
         if image.nil? || image.to_s.empty?
           # A job whose templates could not be resolved lacks its image as a consequence.

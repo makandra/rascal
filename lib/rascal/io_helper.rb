@@ -21,6 +21,11 @@ module Rascal
       stderr.puts(message)
     end
 
+    # Reports something that may make commands fail, on stderr.
+    def warning(message)
+      stderr.puts("Warning: #{message}")
+    end
+
     def stdout
       IOHelper.stdout
     end

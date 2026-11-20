@@ -28,7 +28,7 @@ module Rascal
     BASH
 
     attr_reader :name, :network, :container, :env_variables, :services, :volumes, :working_dir, :before_shell,
-      :problems, :warnings
+      :problems, :warnings, :services_timeout
 
     # `problems` prevent the environment from starting, but not from being cleaned.
     # `warnings` are shown before starting it.
@@ -51,9 +51,12 @@ module Rascal
       @services_timeout = services_timeout
     end
 
-    def run_shell
+    # `env`, `unset_env` and `ssh_agent` change the container for this command only, like for
+    # updating dependencies. Services keep their variables. `ssh_agent` overrides the config's
+    # setting unless it is nil.
+    def run_shell(env: {}, unset_env: [], ssh_agent: nil)
       starting_services = start
-      run_in_container(script('bash', starting_services), tty: true).tap { report_stopped_services }
+      run_in_container(script('bash', starting_services), tty: true, env: env, unset_env: unset_env, ssh_agent: ssh_agent).tap { report_stopped_services }
     end
 
     # Runs a single command in the environment, without a TTY, and returns its
@@ -64,9 +67,11 @@ module Rascal
     # The command is a list of arguments, which is escaped before being handed
     # to bash, so arguments may contain spaces and shell metacharacters. Use
     # e.g. `bash -c "foo && bar"` to run something the shell must interpret.
-    def run_command(*command)
+    # See #run_shell for the keyword arguments.
+    def run_command(*command, env: {}, unset_env: [], ssh_agent: nil)
       starting_services = start
-      run_in_container(script(Shellwords.join(command), starting_services), tty: false, forward_stdin: stdin_redirected?).tap { report_stopped_services }
+      run_in_container(script(Shellwords.join(command), starting_services), tty: false, forward_stdin: stdin_redirected?,
+        env: env, unset_env: unset_env, ssh_agent: ssh_agent).tap { report_stopped_services }
     end
 
     def clean(clean_volumes: false)
@@ -90,7 +95,7 @@ module Rascal
     # command started less than services_timeout ago.
     def start
       raise_problems
-      @warnings.each { |warning| stderr.puts("Warning: #{warning}") }
+      @warnings.each { |warning| warning(warning) }
       download_missing
       started = start_services
       @services.select { |service| started.include?(service) || service.starting?(@services_timeout) }
@@ -110,7 +115,7 @@ module Rascal
     # confusing ways, so point to its output.
     def report_stopped_services
       @services.reject(&:running?).each do |service|
-        stderr.puts("Warning: Service #{service.aliases.first} is not running anymore. See why with `docker logs #{service.container.prefixed_name}`, " \
+        warning("Service #{service.aliases.first} is not running anymore. See why with `docker logs #{service.container.prefixed_name}`, " \
                     "then fix its settings and run `rascal clean #{@name}`.")
       end
     end
@@ -119,14 +124,13 @@ module Rascal
       raise Error, @problems.join("\n") if @problems.any?
     end
 
-    def run_in_container(script, tty:, forward_stdin: tty)
-      ssh_volumes, ssh_env = ssh_agent_access
+    def run_in_container(script, tty:, env:, unset_env:, ssh_agent:, forward_stdin: tty)
+      ssh_volumes, ssh_env = ssh_agent_access(ssh_agent.nil? ? @ssh_agent : ssh_agent)
       @container.run_and_attach('bash', '-c', script,
-        env: @env_variables.merge(ssh_env),
+        env: @env_variables.except(*unset_env).merge(env, ssh_env),
         network: @network,
         volumes: [*@volumes, *ssh_volumes],
         working_dir: @working_dir,
-        allow_failure: true,
         tty: tty,
         forward_stdin: forward_stdin,
       )
@@ -136,6 +140,7 @@ module Rascal
     #
     # 1. Waits until services that may not be ready yet accept connections, like a GitLab runner does.
     # 2. Runs before_shell, the command and after_shell, and exits with the command's status.
+    #    Each on its own line, so entries may end in `&` or a comment.
     #    Without saving it, an `after_shell` entry would determine the exit status, and
     #    failures would go unnoticed.
     # 3. Gives files the container created in the project back to the host user, since
@@ -149,7 +154,7 @@ module Rascal
         *@after_shell,
         *fix_ownership,
         'exit $__rascal_status',
-      ].join(';')
+      ].join("\n")
     end
 
     def wait_for(services)
@@ -172,15 +177,15 @@ module Rascal
     end
 
     # Volumes and variables that give the container access to the host's SSH agent.
-    def ssh_agent_access
-      return [[], {}] unless @ssh_agent
+    def ssh_agent_access(enabled)
+      return [[], {}] unless enabled
 
       socket = ENV['SSH_AUTH_SOCK'].to_s
       if Docker.interface.run('info', '--format', '{{.OperatingSystem}}', output: :text, allow_failure: true).to_s.include?('Docker Desktop')
         # Docker Desktop runs in a VM and provides the host's agent at a fixed path.
         socket = DOCKER_DESKTOP_SSH_AGENT_SOCKET
       elsif socket.empty? || !File.socket?(socket)
-        stderr.puts('Warning: ssh_agent is enabled, but there is no SSH agent at SSH_AUTH_SOCK. Start one with `eval $(ssh-agent)` and `ssh-add`.')
+        warning('ssh_agent is enabled, but there is no SSH agent at SSH_AUTH_SOCK. Start one with `eval $(ssh-agent)` and `ssh-add`.')
         return [[], {}]
       end
 

@@ -10,7 +10,7 @@ module Rascal
 
       include IOHelper
 
-      attr_reader :image, :prefixed_name
+      attr_reader :image, :entrypoint, :prefixed_name
 
       # `entrypoint` overrides the image's entrypoint, like `image: entrypoint:` in GitLab.
       # [] or [''] removes it.
@@ -22,7 +22,7 @@ module Rascal
       end
 
       def download_missing
-        unless image_exists?
+        unless image_info
           info "Downloading image for #{@name}"
           pull
         end
@@ -31,14 +31,13 @@ module Rascal
       # Whether the entrypoint (from the CI config, or else the image's) is a shell that
       # expects the command as one string, like `sh -c`, `bash -lc` or `sh -ec`.
       def shell_entrypoint?
-        entrypoint = @entrypoint || (image_exists? || {}).dig('Config', 'Entrypoint')
+        entrypoint = @entrypoint || image_info&.dig('Config', 'Entrypoint')
         Array(entrypoint).last.to_s.match?(/\A-[a-zA-Z]*c[a-zA-Z]*\z/)
       end
 
       # The TCP ports the image declares with EXPOSE, like [5432] for postgres.
       def exposed_tcp_ports
-        info = image_exists?
-        ports = info && info.dig('Config', 'ExposedPorts') || {}
+        ports = image_info&.dig('Config', 'ExposedPorts') || {}
         ports.keys.filter_map { |port| port[%r{\A(\d+)/tcp\z}, 1]&.to_i }
       end
 
@@ -106,10 +105,11 @@ module Rascal
       # Runs a one-off container for a command. If rascal gets a signal, like when a script
       # or an agent gives up on a command, it removes the container, which would keep running otherwise.
       # With `tty`, the container gets a terminal. With `forward_stdin`, it reads rascal's stdin.
-      def run_and_attach(*command, env: {}, network: nil, volumes: [], working_dir: nil, allow_failure: false, tty: true, forward_stdin: tty)
+      # Returns the command's Process::Status.
+      def run_and_attach(*command, env:, network:, volumes:, working_dir:, tty:, forward_stdin:)
         run_name = "#{@prefixed_name}#{RUN_SUFFIX}#{SecureRandom.hex(4)}"
         remove_on_signal(run_name) do
-          run_container(run_name, *command, env: env, network: network, volumes: volumes, working_dir: working_dir, allow_failure: allow_failure, tty: tty, forward_stdin: forward_stdin)
+          run_container(run_name, *command, env: env, network: network, volumes: volumes, working_dir: working_dir, tty: tty, forward_stdin: forward_stdin)
         end
       end
 
@@ -122,7 +122,9 @@ module Rascal
         Docker.interface.run('container', 'rm', '--force', '--volumes', *ids)
       end
 
-      def run_container(run_name, *command, env:, network:, volumes:, working_dir:, allow_failure:, tty:, forward_stdin:)
+      private
+
+      def run_container(run_name, *command, env:, network:, volumes:, working_dir:, tty:, forward_stdin:)
         Docker.interface.run_and_attach(
           'container',
           'run',
@@ -146,9 +148,11 @@ module Rascal
             err: stderr,
             in: stdin,
           },
-          allow_failure: allow_failure,
+          allow_failure: true,
         )
       end
+
+      public
 
       def clean
         if running?
@@ -235,7 +239,7 @@ module Rascal
         networks.each_value.filter_map { |n| n['NetworkID'] }.reject(&:empty?).uniq
       end
 
-      def image_exists?
+      def image_info
         Docker.interface.run(
           'image',
           'inspect',

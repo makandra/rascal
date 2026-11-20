@@ -1,8 +1,9 @@
 require 'socket'
 require 'fileutils'
 
-# Running commands for real (output, exit status, quoting, services) is covered by
-# spec/integration. These specs cover what happens before anything runs.
+# How `rascal run` runs a command: arguments and options, the script around the command,
+# stdin, entrypoints, the SSH agent and variables for one command. Starting the environment
+# is covered by starting_an_environment_spec.rb, running commands for real by spec/integration.
 describe 'rascal run' do
 
   it 'complains about a missing command' do
@@ -28,73 +29,6 @@ describe 'rascal run' do
 
     expect(result.exit_code).not_to eq 0
     expect(result.stderr).to include('Unknown environment nope. Available: job.')
-  end
-
-  it "explains why it cannot start a job's environment" do
-    gitlab_ci_config(<<~YAML)
-      deploy:
-        image: $CI_REGISTRY_IMAGE/deploy:latest
-    YAML
-
-    result = run_rascal('run', 'deploy', '--', 'true')
-
-    expect(result.exit_code).not_to eq 0
-    expect(result.stderr).to include("The image of job 'deploy' ($CI_REGISTRY_IMAGE/deploy:latest) uses the undefined variable CI_REGISTRY_IMAGE.")
-    expect(docker.commands).to eq []
-  end
-
-  it 'suggests docker login when the image cannot be pulled for lack of credentials' do
-    gitlab_ci_config(<<~YAML)
-      job:
-        image: registry.example.com/group/app:1.0
-    YAML
-    docker.pull_fails('registry.example.com/group/app:1.0', 'Error response from daemon: unauthorized: HTTP Basic: Access denied')
-
-    result = run_rascal('run', 'job', '--', 'true')
-
-    expect(result.exit_code).not_to eq 0
-    expect(result.stderr).to include('Log in with `docker login registry.example.com`, then try again.')
-  end
-
-  it 'explains when the image does not exist' do
-    gitlab_ci_config(<<~YAML)
-      job:
-        image: registry.example.com/group/app:1.0
-    YAML
-    docker.pull_fails('registry.example.com/group/app:1.0', 'Error response from daemon: manifest for registry.example.com/group/app:1.0 not found: manifest unknown: manifest unknown')
-
-    result = run_rascal('run', 'job', '--', 'true')
-
-    expect(result.exit_code).not_to eq 0
-    expect(result.stderr).to include('Docker found no image registry.example.com/group/app:1.0 in its registry.')
-  end
-
-  it 'passes on other errors from pulling an image unchanged' do
-    gitlab_ci_config(<<~YAML)
-      job:
-        image: registry.example.com/group/app:1.0
-    YAML
-    docker.pull_fails('registry.example.com/group/app:1.0', 'permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock')
-
-    result = run_rascal('run', 'job', '--', 'true')
-
-    expect(result.exit_code).not_to eq 0
-    expect(result.stderr).to include('permission denied while trying to connect to the Docker daemon socket')
-    expect(result.stderr).not_to include('docker login')
-  end
-
-  it 'does not mistake other errors containing "not found" for a missing image' do
-    gitlab_ci_config(<<~YAML)
-      job:
-        image: registry.example.com/group/app:1.0
-    YAML
-    docker.pull_fails('registry.example.com/group/app:1.0', 'error getting credentials - err: exec: "docker-credential-desktop": executable file not found in $PATH')
-
-    result = run_rascal('run', 'job', '--', 'true')
-
-    expect(result.exit_code).not_to eq 0
-    expect(result.stderr).to include('docker-credential-desktop')
-    expect(result.stderr).not_to include('Docker found no image')
   end
 
   it 'reports what it does on stderr, and keeps stdout for the command' do
@@ -197,38 +131,6 @@ describe 'rascal run' do
     expect(docker.commands.grep(/container run/).last).to include("-a STDERR --entrypoint  -w /repo ")
   end
 
-  it 'warns about includes it cannot read' do
-    gitlab_ci_config(<<~YAML)
-      include:
-        - project: group/templates
-          file: services.yml
-      job:
-        image: job-image:latest
-    YAML
-
-    result = run_rascal!('run', 'job', '--', 'true')
-
-    expect(result.stderr).to include(
-      'Warning: rascal cannot read these includes, so config from them is missing: project: group/templates, file: services.yml. ' \
-      'If the job needs services or variables from them, set them in the `.rascal` block.'
-    )
-  end
-
-  it 'warns about variables that reference undefined variables, and runs anyway' do
-    gitlab_ci_config(<<~YAML)
-      job:
-        image: job-image:latest
-        variables:
-          DATABASE_URL: postgres://user:$DB_PASSWORD@db
-    YAML
-
-    result = run_rascal('run', 'job', '--', 'true')
-
-    expect(result.exit_code).to eq 0
-    expect(result.stderr).to include('Warning: Variable DATABASE_URL references DB_PASSWORD, which is undefined')
-    expect(docker.commands).to include(match(/container run/))
-  end
-
   describe 'the script it runs in the container' do
 
     def container_script
@@ -249,7 +151,7 @@ describe 'rascal run' do
       YAML
       docker.image_exists('mysql:5.7', exposed_ports: ['3306/tcp', '33060/tcp', '53/udp'])
 
-      expect(container_script).to match(/\A__rascal_wait_for\(\) \{.*\};__rascal_wait_for db 30 3306 33060;bundle check;rake;/)
+      expect(container_script).to match(/\A__rascal_wait_for\(\) \{.*\}\n__rascal_wait_for db 30 3306 33060\nbundle check\nrake\n/)
     end
 
     it 'waits for HEALTHCHECK_TCP_PORT instead, and as long as services_timeout says' do
@@ -266,7 +168,7 @@ describe 'rascal run' do
       YAML
       docker.image_exists('mysql:5.7', exposed_ports: ['3306/tcp', '33060/tcp'])
 
-      expect(container_script).to include(';__rascal_wait_for db 120 3306;')
+      expect(container_script).to include("\n__rascal_wait_for db 120 3306\n")
     end
 
     it 'waits for services another command started less than services_timeout ago' do
@@ -280,7 +182,7 @@ describe 'rascal run' do
       docker.image_exists('mysql:5.7', exposed_ports: ['3306/tcp'])
       docker.container_exists('rascal-app-job_db', running: true, started_at: Time.now - 5)
 
-      expect(container_script).to include(';__rascal_wait_for db 30 3306;')
+      expect(container_script).to include("\n__rascal_wait_for db 30 3306\n")
     end
 
     it 'does not wait for services that were already running' do
@@ -305,7 +207,7 @@ describe 'rascal run' do
       YAML
 
       expect(container_script).to end_with(
-        ";[ \"$(stat -c %u /repo 2>/dev/null)\" = #{Process.uid} ] && find /repo -xdev -user 0 -exec chown -h #{Process.uid}:#{Process.gid} {} + 2>/dev/null;exit $__rascal_status"
+        "\n[ \"$(stat -c %u /repo 2>/dev/null)\" = #{Process.uid} ] && find /repo -xdev -user 0 -exec chown -h #{Process.uid}:#{Process.gid} {} + 2>/dev/null\nexit $__rascal_status"
       )
     end
 
@@ -363,6 +265,35 @@ describe 'rascal run' do
       expect(docker_run_command).to include('-v /run/host-services/ssh-auth.sock:/run/rascal/ssh-agent.sock')
     end
 
+    it 'gives a single command the SSH agent with --ssh-agent' do
+      ENV['SSH_AUTH_SOCK'] = @agent_socket
+      gitlab_ci_config(<<~YAML)
+        job:
+          image: job-image:latest
+      YAML
+
+      run_rascal!('run', 'job', '--ssh-agent', '--', 'bundle', 'update')
+      run_rascal!('run', 'job', '--', 'bundle', 'exec', 'rspec')
+
+      updating, testing = docker.commands.grep(/container run/)
+      expect(updating).to include("-v #{@agent_socket}:/run/rascal/ssh-agent.sock")
+      expect(testing).not_to include('ssh')
+    end
+
+    it 'keeps the SSH agent away from a single command with --no-ssh-agent, even if the config enables it' do
+      ENV['SSH_AUTH_SOCK'] = @agent_socket
+      gitlab_ci_config(<<~YAML)
+        .rascal:
+          ssh_agent: true
+        job:
+          image: job-image:latest
+      YAML
+
+      run_rascal!('run', 'job', '--no-ssh-agent', '--', 'bundle', 'exec', 'rspec')
+
+      expect(docker.commands.grep(/container run/).last).not_to include('ssh')
+    end
+
     it 'does not give the container the SSH agent unless enabled, since code in the container could use its keys' do
       ENV['SSH_AUTH_SOCK'] = @agent_socket
       gitlab_ci_config(<<~YAML)
@@ -387,6 +318,95 @@ describe 'rascal run' do
       expect(docker.commands.grep(/container run/).last).not_to include('ssh-agent.sock')
     end
 
+  end
+
+  describe 'changing variables for one command' do
+
+    before do
+      gitlab_ci_config(<<~YAML)
+        job:
+          image: job-image:latest
+          variables:
+            FOO: foo
+          services:
+            - name: service-image:latest
+              alias: service
+      YAML
+    end
+
+    it 'sets variables with --env and removes them with --unset-env, for that command only' do
+      run_rascal!('run', 'job', '--env', 'FOO=changed', '--env', 'BAR=a=b', '--unset-env', 'CI', '--unset-env', 'GITLAB_CI', '--', 'bundle', 'update')
+      run_rascal!('run', 'job', '--', 'bundle', 'exec', 'rspec')
+
+      updating, testing = docker.commands.grep(/container run/)
+      expect(updating).to include('-e FOO=changed', '-e BAR=a=b')
+      expect(updating).not_to include('-e CI=', '-e GITLAB_CI=')
+      expect(testing).to include('-e FOO=foo', '-e CI=true', '-e GITLAB_CI=true')
+      expect(docker.commands.grep(/container create/).last).to include('-e FOO=foo', '-e CI=true')
+    end
+
+    it 'complains about --env without a value, and --unset-env with one' do
+      missing_value = run_rascal('run', 'job', '--env', 'FOO', '--', 'true')
+      unexpected_value = run_rascal('run', 'job', '--unset-env', 'CI=true', '--', 'true')
+
+      expect(missing_value.stderr).to include('Use --env NAME=VALUE, like --env RAILS_ENV=test.')
+      expect(unexpected_value.stderr).to include('Use --unset-env NAME, like --unset-env CI.')
+      expect(docker.commands.grep(/container run/)).to be_empty
+    end
+
+    it 'takes --env before and after the environment name' do
+      run_rascal!('run', '--env', 'A=1', 'job', '--env', 'B=2', '--', 'true')
+
+      expect(docker.commands.grep(/container run/).last).to include('-e A=1', '-e B=2')
+    end
+
+  end
+
+  it 'accepts options before or after the environment name, but not after --' do
+    other_project = File.join(@tmp_dir, 'other')
+    Dir.mkdir(other_project)
+    File.write(File.join(other_project, '.gitlab-ci.yml'), "other-job:\n  image: other-image:latest\n")
+
+    run_rascal!('run', 'other-job', '-c', other_project, '--', 'ls', '-c', 'x')
+
+    expect(docker.commands.grep(/container run/).last).to match(/other-image:latest bash -c ls -c x\n/)
+  end
+
+  it 'runs a command without a leading -- as it is, even when it contains --' do
+    gitlab_ci_config(<<~YAML)
+      job:
+        image: job-image:latest
+    YAML
+
+    run_rascal!('run', 'job', 'git', 'checkout', '--', 'file')
+
+    expect(docker.commands.grep(/container run/).last).to match(/job-image:latest bash -c git checkout -- file\n/)
+  end
+
+  it 'complains about options after the environment name without --, instead of running them' do
+    gitlab_ci_config(<<~YAML)
+      job:
+        image: job-image:latest
+    YAML
+
+    result = run_rascal('run', 'job', '--ssh-agent', 'bundle', 'update')
+
+    expect(result.exit_code).not_to eq 0
+    expect(result.stderr).to include("Put -- between rascal's options and the command")
+    expect(docker.commands.grep(/container run/)).to be_empty
+  end
+
+  it 'complains about unknown options, instead of running them' do
+    gitlab_ci_config(<<~YAML)
+      job:
+        image: job-image:latest
+    YAML
+
+    result = run_rascal('run', 'job', '--bogus', '--', 'true')
+
+    expect(result.exit_code).not_to eq 0
+    expect(result.stderr).to include('Unknown switches "--bogus"')
+    expect(docker.commands.grep(/container run/)).to be_empty
   end
 
   it 'exits with 128 plus the signal number when the command was killed' do

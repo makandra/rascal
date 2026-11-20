@@ -6,6 +6,24 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
 
 ## Unreleased
 
+### Breaking changes
+
+- Predefine the variables `CI`, `GITLAB_CI`, `CI_JOB_NAME`, `CI_PROJECT_NAME`, `CI_PROJECT_DIR` and
+  `CI_BUILDS_DIR`, like GitLab does. **This may change how your app and tools behave in a rascal
+  environment**, if they check for `CI` or `GITLAB_CI`. Override or remove them in the `.rascal` block if needed.
+- Let a job override `default:`, like GitLab does. Rascal used to do it the other way around.
+- rascal's own messages, like `Starting container for ...` and image downloads, go to stderr, so a
+  command's stdout only has the command's output.
+- After starting services, wait until each accepts connections on one of its exposed ports, or
+  on `HEALTHCHECK_TCP_PORT` from its variables, before running the command. Set the timeout
+  (30 seconds by default) with `services_timeout` in the `.rascal` block.
+- `rascal clean` also removes the anonymous volumes of service containers, like the data volumes of
+  postgres and redis, which used to pile up.
+- `before_shell`, the command and `after_shell` run on separate lines of a script instead of being
+  joined with `;`, so entries may end in `&` or a comment.
+
+### GitLab compatibility
+
 - Read `.gitlab-ci.yml` files with global `variables:` or `workflow:`, which rascal used to mistake
   for jobs, like `include:` and `stages:`. The deprecated top-level `image`,
   `services`, `cache`, `before_script` and `after_script` now act like the same keys in `default:`.
@@ -14,41 +32,38 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
   and services without an alias, which get the host names GitLab derives from their image.
 - Expand variables in variables, image names and service names, like GitLab does
   (`$NAME`, `${NAME}`, `%NAME%`, `$$`). Global `variables:` apply to every job.
-  In the `.rascal` block, a variable can extend the job's value, like `RUBYOPT: $RUBYOPT -W:deprecated`,
+- Support `entrypoint` for a job's image.
+- Job names like `2.6`, which YAML reads as numbers, work in `.rascal: jobs:`.
+
+### Working with environments
+
+- Add the options `--env NAME=VALUE`, `--unset-env NAME` and `--ssh-agent` to `rascal run` and
+  `rascal shell`, which change the container for a single command, like for updating dependencies.
+  Options may also come after the environment's name.
+- In the `.rascal` block, a variable can extend the job's value, like `RUBYOPT: $RUBYOPT -W:deprecated`,
   or remove a variable, like `CI: null`.
-- Warn about variables that reference undefined variables, like ones set in the project's CI/CD settings.
-- Predefine the variables `CI`, `GITLAB_CI`, `CI_JOB_NAME`, `CI_PROJECT_NAME`, `CI_PROJECT_DIR` and
-  `CI_BUILDS_DIR`. **This may change how your app and tools behave in a rascal environment**, if they
-  check for `CI` or `GITLAB_CI`. Override them in the `.rascal` block if needed.
-- Let a job override `default:`, like GitLab does. Rascal used to do it the other way around.
-- Explain what is wrong when a job has no image, its image uses an undefined variable, or its
-  `extends:` templates cannot be resolved.
-  `rascal clean` and `rascal environments` still work for such jobs, and `rascal update --all` skips them.
-- After starting services, wait until each accepts connections on one of its exposed ports, or
-  on `HEALTHCHECK_TCP_PORT` from its variables, before running the command. Set the timeout
-  (30 seconds by default) with `services_timeout` in the `.rascal` block.
-- Give files that commands create in the project back to the host user. They used to belong to root.
+- Read settings for rascal from a `.rascal.yml` next to `.gitlab-ci.yml`, which extends the `.rascal`
+  block. Use it for settings that should not be part of the project's CI config.
 - With `ssh_agent: true` in the `.rascal` block, make the host's SSH agent and known hosts available
   in the container, so it can fetch private dependencies over SSH. It is off by default, since any
   code in the container can use the agent's keys while a command runs.
-- Read settings for rascal from a `.rascal.yml` next to `.gitlab-ci.yml`, which extends the `.rascal`
-  block. Use it for settings that should not be part of the project's CI config.
-- Suggest `docker login` when an image cannot be pulled for lack of credentials, explain what to do
-  when an image does not exist in its registry, and explain where rascal looked for `.gitlab-ci.yml`.
+- Give files that commands create in the project back to the host user. They used to belong to root.
+- `rascal run` passes stdin to the command when it comes from a file or a pipe.
 - When rascal gets a signal while running a command, it removes the command's container, which kept
   running before. `rascal clean` removes such containers left over from earlier versions or `kill -9`.
-- Point to the logs of services that stopped, like when their settings are wrong.
-- `rascal clean` also removes the anonymous volumes of service containers, like the data volumes of
-  postgres and redis, which used to pile up.
-- Job names like `2.6`, which YAML reads as numbers, work in `.rascal: jobs:`.
-- rascal's own messages, like `Starting container for ...` and image downloads, go to stderr, so a
-  command's stdout only has the command's output.
-- `rascal run` passes stdin to the command when it comes from a file or a pipe.
-- Support `entrypoint` for a job's image.
-- Warn about includes rascal cannot read.
 - Several commands can start the same environment at once.
-- Rewrite the README around setting up a project, working in it and tearing it down, with a
-  configuration reference and troubleshooting. Improve the command line help.
+
+### Messages
+
+- Explain what is wrong when a job has no image, its image uses an undefined variable, its
+  `extends:` templates cannot be resolved, or its `services_timeout` is not a number.
+  `rascal clean` and `rascal environments` still work for such jobs, and `rascal update --all` skips them.
+- Warn about variables that reference undefined variables, like ones set in the project's CI/CD
+  settings, and about includes rascal cannot read.
+- Suggest `docker login` when an image cannot be pulled for lack of credentials, explain what to do
+  when an image does not exist in its registry, and explain where rascal looked for `.gitlab-ci.yml`.
+- Point to the logs of services that stopped, like when their settings are wrong.
+- Explain each command in `rascal help <command>`.
 
 
 ## 0.4.1 (2026-07-30)

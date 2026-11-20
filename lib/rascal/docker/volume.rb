@@ -1,11 +1,9 @@
 module Rascal
   module Docker
     module Volume
-      class Base
+      class Named
         include IOHelper
-      end
 
-      class Named < Base
         def initialize(name, container_path)
           @prefixed_name = "#{NAME_PREFIX}#{name}"
           @container_path = container_path
@@ -27,17 +25,17 @@ module Rascal
         end
 
         def exists?
-          Docker.interface.run(
+          !Docker.interface.run(
             'volume',
             'ls',
             '--quiet',
             '--filter', "name=^#{@prefixed_name}$",
-            output: :id,
-          )
+            output: :text,
+          ).to_s.empty?
         end
       end
 
-      class Bind < Base
+      class Bind
         def initialize(local_path, container_path, read_only: false)
           @local_path = local_path
           @container_path = container_path

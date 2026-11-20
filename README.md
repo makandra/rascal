@@ -126,8 +126,9 @@ Starting container for myapp-rspec_db
 Starting container for myapp-rspec_redis
 ```
 
-If rascal cannot start the environment, it says why and what to do. See
-[Troubleshooting](#troubleshooting).
+The first run downloads the images, which can take several minutes. If you run rascal with a
+timeout, give this run a generous one. If rascal cannot start the environment, it says why and what
+to do. See [Troubleshooting](#troubleshooting).
 
 If the project already has a `.rascal` block in `.gitlab-ci.yml`, look at it first. Its
 `before_shell` commands run before each of your commands, and may already install dependencies.
@@ -143,7 +144,9 @@ rascal run rspec -- bin/rails db:create db:schema:load
 ```
 
 Leave out steps that only make sense on a CI runner, like ones that use `CI_JOB_TOKEN` to fetch
-private repositories. Use `ssh_agent` instead (see below).
+private repositories. Use `ssh_agent` instead (see below). Steps like
+`cp config/database.ci.yml config/database.yml` change your project directory, and may overwrite a
+file Git ignores, so look before you copy.
 
 Gems stay installed between commands if the job sets `BUNDLE_PATH` to a directory in the project,
 as most CI configs do to cache gems. Otherwise, set it in the `.rascal` block (see below).
@@ -171,7 +174,7 @@ ignores:
     - bin/rails db:create db:migrate
 ```
 
-All commands run in one bash script, separated by `;`:
+All commands run in one bash script, one per line:
 
 - A failing `before_shell` command does not stop your command, and does not change the exit status.
 - Its output appears with your command's output on every run. Redirect it, like `> /dev/null`
@@ -216,6 +219,10 @@ ssh_agent: true
 
 rascal then mounts your SSH agent and your `~/.ssh/known_hosts` into the container. It does not
 mount `~/.ssh/config`, so host aliases from there do not work.
+
+To give the agent only to the commands that need it, use `--ssh-agent` instead, like
+`rascal run rspec --ssh-agent -- bundle install`. Test runs and other commands then cannot use your
+keys.
 
 **While a command runs, any code in the container can use all keys in the agent**, including
 install scripts of dependencies. With Docker Engine on Linux, you can start a separate agent that
@@ -283,9 +290,12 @@ What to expect from `rascal run`:
   Files the command created in the project may then still belong to root, until the next command
   gives them back.
 - **Environment variables** from your shell are not passed into the container. Use
-  `rascal run rspec -- env FOO=bar bin/rails runner ...` or the `.rascal` block.
+  `rascal run rspec --env FOO=bar -- bin/rails runner ...`, or the `.rascal` block to set them for
+  every command. `--unset-env NAME` removes one, like `CI`.
 - **Parallel commands** in the same environment work, like several test runs at once. Each gets its
-  own container, and they share the services.
+  own container, and they share the services, including the test database. Two commands that load
+  the schema or run tests at the same time get in each other's way, unless the project's parallel
+  test setup gives each its own database.
 
 For an interactive shell, like for a Rails console or a debugger, use `rascal shell rspec`. It runs
 bash with `before_shell` and `after_shell` around it, just like a command.
@@ -310,28 +320,22 @@ rascal run rspec -- bundle update rack --conservative
 Some Gemfiles leave out gems when `CI` is set, typically private gems that CI cannot fetch. Look
 for `ENV['CI']` or `ENV.key?('CI')` in the Gemfile. Since rascal sets `CI` like GitLab does, every
 Bundler command, even `bundle exec`, then writes a `Gemfile.lock` without these gems: their `GIT`
-block disappears. To change dependencies in such a project:
+block disappears. To change dependencies in such a project, run the change without these variables,
+and with your SSH agent to fetch the private gems (if you are an AI agent, ask your user before you
+use [`--ssh-agent`](#private-dependencies-over-ssh)):
 
-1. Remove the variables in your `.rascal.yml`, and enable
-   [`ssh_agent`](#private-dependencies-over-ssh) to fetch the private gems (if you are an AI agent,
-   ask your user first):
+```sh
+git checkout HEAD -- Gemfile.lock   # start from the committed lockfile (commit changes to keep first)
+rascal run rspec --unset-env CI --unset-env GITLAB_CI --ssh-agent -- bundle update rack --conservative
+git add Gemfile.lock                # keep this version
+git diff --cached Gemfile.lock
+```
 
-   ```yaml
-   variables:
-     CI: null
-     GITLAB_CI: null
-   ssh_agent: true
-   ```
+The diff should only show the changes you intended. Run tests as usual, with `CI` set, since
+projects often check it elsewhere too, like for eager loading. Each Bundler command removes the
+private gems from `Gemfile.lock` again, so before you commit, restore the version you staged with
+`git checkout Gemfile.lock`.
 
-2. Restore the lockfile from Git (`git checkout Gemfile.lock`, after committing changes to it you
-   want to keep), then make your change, like `rascal run rspec -- bundle update rack --conservative`.
-3. Stage the result with `git add Gemfile.lock`, and check `git diff --cached Gemfile.lock`. It
-   should only show the changes you intended.
-4. Remove `CI: null` and `GITLAB_CI: null` again. Projects often check `CI` elsewhere too, like for
-   eager loading or browser tests, so tests should run with it, like on CI.
-
-Later commands remove the private gems from `Gemfile.lock` again. Before you commit, restore the
-staged version with `git checkout Gemfile.lock`.
 
 ## Tearing down
 
@@ -378,9 +382,20 @@ directory.
 | `rascal update --all` | The same for all environments. Skips jobs whose images rascal cannot resolve. |
 | `rascal --version` | Prints rascal's version. |
 
+Options go before `--`, before or after the job's name.
+
 With `--config-file PATH` (or `-c PATH`), rascal uses another `.gitlab-ci.yml`, or the one in another
 directory. The directory of that file counts as the project directory: rascal mounts it, and looks
 for `.rascal.yml` and local includes there.
+
+`run` and `shell` take options that change only this command's container. Services keep their
+settings.
+
+| Option | What it does |
+|---|---|
+| `--env NAME=VALUE` | Sets a variable. Repeat it for more. |
+| `--unset-env NAME` | Removes a variable, like `CI`. Repeat it for more. |
+| `--ssh-agent` | Gives the container your SSH agent, like `ssh_agent: true` (see [Private dependencies over SSH](#private-dependencies-over-ssh)). |
 
 ### Docker resources
 
@@ -584,7 +599,21 @@ The service needs longer to start, or listens on a port its image does not decla
 #### `Service ... is not running anymore`
 
 The service stopped, usually because of missing settings, like a database password. Its logs say
-why. Fix its variables in the `.rascal` block, then run `rascal clean <job>`.
+why, like `docker logs rascal-myapp-rspec_db` (see [Docker resources](#docker-resources) for the
+names). Fix its variables in the `.rascal` block, then run `rascal clean <job>`.
+
+#### `detected dubious ownership` or `not a git repository` from Git in the container
+
+Git in the container refuses the project, since it belongs to you and not to the container's user.
+This also breaks gemspecs that call `git ls-files`. Add this to `before_shell`:
+
+```yaml
+before_shell:
+  - git config --global --add safe.directory /repo
+```
+
+In a Git worktree, Git in the container cannot work at all, since the worktree's `.git` points to
+the main repository outside the project directory. Run Git on your machine instead, or use a clone.
 
 #### `Host key verification failed` or `Permission denied (publickey)` when fetching dependencies
 
@@ -619,7 +648,7 @@ All tests are RSpec specs, of three kinds:
 |---|---|---|---|
 | Unit specs | `spec/rascal/` | Parsing CI configs, resolving variables, and other logic. Most tests belong here. | Fast |
 | CLI specs | `spec/cli/` | The command line, with a mocked Docker that records which `docker` commands rascal would call. For what real Docker cannot show easily, like `rascal shell` with a TTY or broken networks. | Fast |
-| Integration specs | `spec/integration/` | The real `rascal` executable against a real Docker daemon. | About 20 seconds, plus pulling small images on the first run |
+| Integration specs | `spec/integration/` | The real `rascal` executable against a real Docker daemon. | About 30 seconds, plus pulling small images on the first run |
 
 Run them like this:
 

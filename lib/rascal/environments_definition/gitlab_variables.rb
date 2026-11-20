@@ -5,7 +5,7 @@ module Rascal
     # - Definitions come in layers. Later layers override earlier ones.
     # - A value may reference other variables as `$NAME`, `${NAME}` or `%NAME%`.
     # - A value that references its own name gets the definition from the layer below,
-    #   so the .rascal block can extend a job's variable with `PATH: $PATH:/more`.
+    #   so the .rascal block can extend a job's variable with `RUBYOPT: $RUBYOPT -W:deprecated`.
     # - `$NAME` and `${NAME}` expand to an empty string if NAME is undefined.
     #   `%NAME%` stays as it is, so strings like `%Y%m%d` survive.
     # - `$$` stands for a literal `$`.

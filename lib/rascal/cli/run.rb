@@ -3,18 +3,17 @@ require 'rascal'
 module Rascal
   module CLI
     class Run < Base
-      def initialize(thor, options, environment_name, command)
+      def initialize(options, environment_name, command)
         @environment_name = environment_name
         @command = command
-        super(thor, options)
+        super(options)
       end
 
       def run
-        if (environment = find_environment(@environment_name))
-          fail_with_error('Missing command. Example: rascal run job -- bundle exec rake') if @command.empty?
-          status = environment.run_command(*@command)
-          exit(exit_code_for(status))
-        end
+        environment = find_environment(@environment_name)
+        fail_with_error('Missing command. Example: rascal run job -- bundle exec rake') if @command.empty?
+        status = environment.run_command(*@command, **command_overrides)
+        exit(exit_code_for(status))
       end
 
       private

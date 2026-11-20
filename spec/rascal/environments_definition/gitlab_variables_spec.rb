@@ -103,6 +103,16 @@ module Rascal
 
       end
 
+      describe '#undefined_references' do
+
+        it 'lists the undefined variables each variable references directly, but not through other variables' do
+          variables = described_class.new('A' => '$MISSING ${ALSO_MISSING}', 'B' => '$A', 'PATH' => '$PATH:/bin', 'RAW' => { 'value' => '$MISSING', 'expand' => false })
+
+          expect(variables.undefined_references).to eq('A' => ['MISSING', 'ALSO_MISSING'])
+        end
+
+      end
+
       describe '#expand' do
 
         it 'expands references in the given string' do

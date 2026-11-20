@@ -18,7 +18,7 @@ Gem::Specification.new do |spec|
   if spec.respond_to?(:metadata)
     spec.metadata["homepage_uri"] = spec.homepage
     spec.metadata["source_code_uri"] = "https://github.com/makandra/rascal"
-    spec.metadata["changelog_uri"] = "https://github.com/makandra/rascal/blob/master/CHANGELOG.md"
+    spec.metadata["changelog_uri"] = "https://github.com/makandra/rascal/blob/main/CHANGELOG.md"
     spec.metadata["rubygems_mfa_required"] = 'true'
   else
     raise "RubyGems 2.0 or newer is required to protect against " \
@@ -33,6 +33,7 @@ Gem::Specification.new do |spec|
   spec.bindir        = "exe"
   spec.executables   = spec.files.grep(%r{^exe/}) { |f| File.basename(f) }
   spec.require_paths = ["lib"]
+  spec.required_ruby_version = ">= 3.0"
 
   spec.add_dependency "thor", ">= 1.0.0"
 end

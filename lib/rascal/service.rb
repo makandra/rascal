@@ -28,7 +28,7 @@ module Rascal
     end
 
     # Returns whether it started the service.
-    def start_if_stopped(network: nil)
+    def start_if_stopped(network:)
       if @container.running?
         false
       else

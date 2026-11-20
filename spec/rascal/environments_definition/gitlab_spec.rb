@@ -205,13 +205,29 @@ module Rascal
           expect(environment.env_variables).to include('LOCAL' => 'local', 'SHARED' => 'local', 'BLOCK' => 'rascal-block', 'LOCAL_JOB' => 'local')
         end
 
+        it 'takes services_timeout in seconds, and reports anything else as a problem' do
+          definition = definition(<<~YAML)
+            .rascal:
+              services_timeout: '90'
+              jobs:
+                invalid:
+                  services_timeout: soon
+            job:
+              image: job-image:latest
+            invalid:
+              image: job-image:latest
+          YAML
+
+          expect(definition.environment('job').services_timeout).to eq 90
+          expect(definition.environment('invalid').problems).to eq ['services_timeout must be a number of seconds, not "soon".']
+        end
+
         it 'replaces characters Docker does not allow in names' do
           environment = definition(<<~YAML, project: 'my app').environment('job')
             job:
               image: job-image:latest
           YAML
 
-          expect(environment.network).to have_attributes(id: anything)
           expect(environment.container.prefixed_name).to eq 'rascal-my_app-job'
           expect(environment.env_variables).to include('CI_PROJECT_NAME' => 'my app')
         end
@@ -746,16 +762,7 @@ module Rascal
                   name: job-image:latest
             YAML
 
-            expect(environment.container.image).to eq 'job-image:latest'
-            expect(definition(<<~YAML).send(:jobs).first.config.get('image')).to eq('name' => 'job-image:latest')
-              default:
-                image:
-                  name: default-image:latest
-                  entrypoint: ['']
-              job:
-                image:
-                  name: job-image:latest
-            YAML
+            expect(environment.container).to have_attributes(image: 'job-image:latest', entrypoint: nil)
           end
 
           it 'lets the .rascal block override the job' do
@@ -1074,7 +1081,7 @@ module Rascal
 
       describe '#available_environment_names' do
 
-        it 'returns valid jobs' do
+        it 'lists jobs, but not templates starting with a dot' do
           expect(definition(<<~YAML).available_environment_names).to eq ['job-1', 'job-2']
             .rascal:
               variables:
@@ -1091,7 +1098,7 @@ module Rascal
           YAML
         end
 
-        it 'ignores special keys' do
+        it 'does not list default: and stages:' do
           expect(definition(<<~YAML).available_environment_names).to eq ['job']
             default:
               foo: bar
@@ -1103,6 +1110,25 @@ module Rascal
             job:
               image: job-1-image:latest
           YAML
+        end
+
+        it 'renames a job with name: and hides one with hide: in the .rascal block' do
+          definition = definition(<<~YAML)
+            .rascal:
+              jobs:
+                old-name:
+                  name: new-name
+                deploy:
+                  hide: true
+            old-name:
+              image: job-image:latest
+            deploy:
+              image: deploy-image:latest
+          YAML
+
+          expect(definition.available_environment_names).to eq ['new-name']
+          expect(definition.environment('new-name').container.image).to eq 'job-image:latest'
+          expect(definition.environment('old-name')).to be_nil
         end
 
         it 'ignores global keywords' do

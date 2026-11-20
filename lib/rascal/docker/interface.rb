@@ -25,8 +25,8 @@ module Rascal
         parse_output(output, save_stdout, save_stderr, command: command.join(' '))
       end
 
-      def run_and_attach(*command, stdout: nil, stderr: nil, stdin: nil, env: {}, network: nil, volumes: [], working_dir: nil, redirect_io: {}, allow_failure: false)
-        exit_status = spawn(env, 'docker', *stringify_command(command), redirect_io)
+      def run_and_attach(*command, redirect_io: {}, allow_failure: false)
+        exit_status = spawn('docker', *stringify_command(command), redirect_io)
         unless allow_failure || exit_status.success?
           raise Error, "docker container run failed"
         end

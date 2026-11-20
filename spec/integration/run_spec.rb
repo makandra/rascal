@@ -125,11 +125,13 @@ describe 'rascal run' do
     expect(result.stdout).to include("[a b]\n[$HOME]\n[it's; done]\n")
   end
 
-  it 'runs before_shell and after_shell around the command, keeping its exit status' do
+  it 'runs before_shell and after_shell around the command, keeping its exit status, even after entries with & or a comment' do
     create_project(<<~YAML)
       .rascal:
         before_shell:
           - echo before
+          - sleep 0 &
+          - true # a comment
         after_shell:
           - echo after
       job:

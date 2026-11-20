@@ -3,12 +3,30 @@ require 'pathname'
 module Rascal
   module CLI
     class Base
-      def initialize(thor, options)
-        @thor = thor
+      include IOHelper
+
+      def initialize(options)
         @options = options
       end
 
       private
+
+      # Changes to the environment for a single command, from --env, --unset-env and --ssh-agent.
+      def command_overrides
+        env = Array(@options[:env]).to_h do |assignment|
+          name, value = assignment.split('=', 2)
+          fail_with_error('Use --env NAME=VALUE, like --env RAILS_ENV=test.') unless value && variable_name?(name)
+          [name, value]
+        end
+        unset_env = Array(@options[:unset_env]).each do |name|
+          fail_with_error('Use --unset-env NAME, like --unset-env CI.') unless variable_name?(name)
+        end
+        { env: env, unset_env: unset_env, ssh_agent: @options[:ssh_agent] }
+      end
+
+      def variable_name?(name)
+        name.match?(/\A[a-zA-Z_][a-zA-Z0-9_]*\z/)
+      end
 
       def config_location
         Pathname.new(@options[:config_file]).expand_path
@@ -20,9 +38,7 @@ module Rascal
 
       def find_environment(environment_name)
         definition = environment_definition
-        if (environment = definition.environment(environment_name))
-          return environment
-        else
+        definition.environment(environment_name) or begin
           available_environments = definition.available_environment_names.join(', ')
           if environment_name
             fail_with_error("Unknown environment #{environment_name}. Available: #{available_environments}.")
@@ -30,6 +46,14 @@ module Rascal
             fail_with_error("Missing environment. Available: #{available_environments}.")
           end
         end
+      end
+
+      # The environment name, or :all with --all.
+      def name_or_all(environment_name)
+        return environment_name unless @options[:all]
+
+        fail_with_error('Cannot give --all and an environment name!') if environment_name
+        :all
       end
 
       def each_environment(name, &block)
@@ -46,13 +70,9 @@ module Rascal
       end
 
       def environment_definition
-        if (definition = EnvironmentsDefinition.detect(config_location))
-          definition
-        else
+        EnvironmentsDefinition.detect(config_location) or
           fail_with_error("Could not find a .gitlab-ci.yml in #{config_location}. Run rascal in your project's root directory, " \
                           "or point to the file with --config-file.")
-          nil
-        end
       end
     end
   end
