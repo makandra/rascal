@@ -4,7 +4,7 @@ All notable changes to this project will be documented here.
 
 Rascal follows semantic versioning. This has little consequence pre 1.0, so expect breaking changes.
 
-## Unreleased
+## 0.5.0 (2026-11-20)
 
 ### Breaking changes
 
