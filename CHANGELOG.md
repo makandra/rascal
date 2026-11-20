@@ -8,7 +8,7 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
 
 ### Breaking changes
 
-- Require Ruby 3.2 or newer for rascal itself. Projects can still use any Ruby in their images.
+- Require Ruby 3.3 or newer for rascal itself. Projects can still use any Ruby in their images.
 - Predefine the variables `CI`, `GITLAB_CI`, `CI_JOB_NAME`, `CI_PROJECT_NAME`, `CI_PROJECT_DIR` and
   `CI_BUILDS_DIR`, like GitLab does. **This may change how your app and tools behave in a rascal
   environment**, if they check for `CI` or `GITLAB_CI`. Override or remove them in the `.rascal` block if needed.

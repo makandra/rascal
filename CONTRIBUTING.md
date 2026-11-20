@@ -6,7 +6,7 @@ This guide is for people and AI agents who change rascal. For using rascal, see 
 
 ## Setup
 
-You need Ruby 3.2 or newer and a running Docker daemon. Install the dependencies with
+You need Ruby 3.3 or newer and a running Docker daemon. Install the dependencies with
 `bundle install`.
 
 To try your working copy on a project, run its executable from the project directory, with the Ruby
@@ -14,7 +14,7 @@ from rascal's `.ruby-version` (it needs the gems from `bundle install`, not the 
 
 ```sh
 cd ~/projects/myapp
-mise exec ruby@3.4.8 -- ruby ~/projects/rascal/exe/rascal run rspec -- bundle exec rspec
+mise exec ruby@4.0.9 -- ruby ~/projects/rascal/exe/rascal run rspec -- bundle exec rspec
 ```
 
 
