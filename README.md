@@ -710,50 +710,8 @@ and `docker volume ls --filter name=rascal-`. Remove them with `docker rm --forc
 
 ## Working on rascal
 
-You need Ruby and a running Docker daemon. Install the dependencies with `bundle install`.
-
-All tests are RSpec specs, of three kinds:
-
-| Tests | Location | What they cover | Speed |
-|---|---|---|---|
-| Unit specs | `spec/rascal/` | Parsing CI configs, resolving variables, and other logic. Most tests belong here. | Fast |
-| CLI specs | `spec/cli/` | The command line, with a mocked Docker that records which `docker` commands rascal would call. For what real Docker cannot show easily, like `rascal shell` with a TTY or broken networks. | Fast |
-| Integration specs | `spec/integration/` | The real `rascal` executable against a real Docker daemon. | About 30 seconds, plus pulling small images on the first run |
-
-Run them like this:
-
-```sh
-bundle exec rake                        # everything, like CI does
-bundle exec rspec --tag ~integration    # only the fast specs
-bundle exec rspec --tag integration     # only the integration specs
-```
-
-The integration specs fail with an explanation when Docker is not running. They do not skip, so a
-green run always means everything was tested.
-
-Test each behavior once, at the cheapest level that can show it works:
-
-- Parsing and resolving CI configs belongs in unit specs, with one example per variation.
-- What rascal does with Docker belongs in integration specs, for key paths and for behavior only
-  real Docker can show, like a job reaching its services by their alias, or exit statuses passing
-  through. Do not add one for every variation of a CI config.
-- CLI specs cover the rest: command line errors and output, and situations that are hard to create
-  with real Docker.
-
-Every spec in `spec/integration/` is tagged with `integration: true` automatically.
-
-Each integration spec creates a project directory named `rascal-it-<random>` in the system's temp
-directory, and removes it together with its containers, networks and volumes afterwards. If you abort
-a run, you can remove leftovers with:
-
-```sh
-docker ps --all --filter name=rascal-rascal-it- --quiet | xargs -r docker rm --force
-docker network ls --filter name=rascal-rascal-it- --quiet | xargs -r docker network rm
-docker volume ls --filter name=rascal-rascal-it- --quiet | xargs -r docker volume rm
-```
-
-If a run was aborted while a container was writing files, a leftover `rascal-it-*` directory in the
-temp directory may contain files owned by root, which need `sudo rm -rf` to remove.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how rascal is built, how to run its tests and where
+changes go.
 
 
 ## License
