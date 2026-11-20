@@ -81,15 +81,17 @@ module Rascal
       end
 
       # `rascal run --help` or `rascal shell rspec -h` show the command's help, like
-      # `rascal help run`. Only before `--`, so commands can have their own --help.
+      # `rascal help run`. For `run`, only before the job, since what follows the job is
+      # the command to run, which may have its own -h.
       def self.help_arguments(args)
-        options = args.take_while { |arg| arg != '--' }
-        return args unless (options & %w[-h --help]).any?
+        # The arguments that are neither options nor the value of -c, like the command and the job.
+        positional = args.each_index.reject do |index|
+          args[index].start_with?('-') || (index > 0 && %w[-c --config-file].include?(args[index - 1]))
+        end
+        command = args[positional.first] if positional.any?
+        last_index = command == 'run' && positional[1] ? positional[1] : (args.index('--') || args.size)
+        return args unless (args.take(last_index) & %w[-h --help]).any?
 
-        # The first argument that is neither an option nor the value of -c.
-        command = options.reject.with_index do |arg, index|
-          arg.start_with?('-') || (index > 0 && %w[-c --config-file].include?(options[index - 1]))
-        end.first
         command && command != 'help' ? ['help', command] : ['help']
       end
 

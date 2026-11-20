@@ -42,9 +42,17 @@ describe 'rascal help' do
     expect(lines.select { |line| line.chomp.length > 80 }).to eq []
   end
 
-  it 'shows the help of a command for --help or -h before --' do
+  it 'shows the help of a command for --help or -h, but leaves a -h of the command to run alone' do
+    gitlab_ci_config(<<~YAML)
+      rspec:
+        image: job-image:latest
+    YAML
+
     expect(run_rascal!('run', '--help').stdout).to include('Usage:', 'rascal run rspec -- bash -c')
     expect(run_rascal!('shell', 'rspec', '-h').stdout).to include('Opens bash in the environment')
+    run_rascal!('run', 'rspec', 'ls', '-h')
+    run_rascal!('run', 'rspec', '--', 'grep', '--help')
+    expect(docker.commands.grep(/container run/).collect { |command| command[/\nls -h\n|\ngrep --help\n/] }).to eq ["\nls -h\n", "\ngrep --help\n"]
   end
 
   it 'explains each command with examples that stay on one line' do
