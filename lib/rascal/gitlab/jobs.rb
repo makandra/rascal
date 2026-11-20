@@ -43,8 +43,15 @@ module Rascal
         @ci_config = @file.to_h
         # A .rascal.yml next to .gitlab-ci.yml extends the .rascal block, for settings
         # that should not be part of the project's CI config.
-        @rascal_config = deep_merge(hash_or_empty(@ci_config['.rascal']), local_rascal_config)
+        rascal_block = hash_or_empty(@ci_config['.rascal'])
+        rascal_file = local_rascal_config
+        @rascal_config = deep_merge(rascal_block, rascal_file)
         @rascal_job_configs = hash_or_empty(@rascal_config.delete('jobs'))
+        # Images from rascal's settings, from the lowest to the highest priority, for #image.
+        @rascal_images = lambda do |key|
+          [rascal_block, rascal_file, hash_or_empty(hash_or_empty(rascal_block['jobs'])[key]), hash_or_empty(hash_or_empty(rascal_file['jobs'])[key])]
+            .select { |settings| settings.key?('image') }.collect { |settings| settings['image'] }
+        end
       end
 
       # The names of the jobs rascal can use as environments, including ones whose environment
@@ -102,8 +109,15 @@ module Rascal
           rascal_job_config = hash_or_empty(@rascal_job_configs[key])
           # The .rascal block overrides the job, which overrides `default:`.
           # Variables are resolved separately, see #variable_layers.
-          rascal_overlays = [@rascal_config.except('variables'), rascal_job_config.except('variables')]
-          config = deep_merge(image_as_hash(inherit_default(job_config), rascal_overlays), *rascal_overlays)
+          config = deep_merge(
+            inherit_default(job_config),
+            @rascal_config.except('variables'),
+            rascal_job_config.except('variables'),
+          )
+          if (rascal_images = @rascal_images.call(key)).any?
+            job_image = inherit_default(job_config)['image']
+            config['image'] = combined_image([job_image, *rascal_images].compact, key, problems)
+          end
           next if config['hide']
 
           # Like GitLab, resolve !reference tags after `extends:`. Only in the keys rascal uses,
@@ -127,14 +141,22 @@ module Rascal
         end
       end
 
-      # GitLab allows `image: name` and `image: { name: ..., entrypoint: ... }`. If rascal's settings
-      # give only part of the long form, like `image: { entrypoint: [''] }` to skip an entrypoint,
-      # turn the job's short form into the long one, so they merge instead of losing the name.
-      def image_as_hash(config, overlays)
-        image = config['image']
-        return config unless image.is_a?(String) && overlays.any? { |overlay| overlay['image'].is_a?(Hash) }
+      # Combines a job's image with the images from rascal's settings, given from the lowest to the
+      # highest priority. Each may be a name, the long form `{ name: ..., entrypoint: ... }`, or a
+      # `!reference`. A long form without a name changes only parts of the image below it, like
+      # `{ entrypoint: [''] }` to skip the entrypoint. Only resolves references in the images it
+      # needs, so a job whose image rascal's settings replace does not get problems from its own.
+      def combined_image(images, key, problems)
+        combined = {}
+        images.reverse_each do |image|
+          image = resolve_references(image, key, problems)
+          image = { 'name' => image } unless image.nil? || image.is_a?(Hash)
+          break if image.nil?
 
-        config.merge('image' => { 'name' => image })
+          combined = deep_merge(image, combined)
+          break if combined.key?('name')
+        end
+        combined
       end
 
       # Replaces !reference tags in `value` with what they point to, after `extends:`

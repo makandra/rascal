@@ -78,6 +78,8 @@ module Rascal
         'image' => @image.name,
         'image_present' => @image.present?,
         'entrypoint' => @command_containers.entrypoint,
+        # What runs before each command unless `entrypoint` replaces it.
+        'image_entrypoint' => (@image.entrypoint if @image.present?),
         'problems' => @problems,
         'warnings' => @warnings,
         'network' => { 'name' => @network.prefixed_name, 'exists' => @network.exists? },

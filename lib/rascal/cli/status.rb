@@ -26,7 +26,12 @@ module Rascal
         lines = [status['name']]
         hints = status['problems'].empty?
         lines << "  Image:      #{status['image'] || '(none)'}#{image_note(status, hints)}"
-        lines << "  Entrypoint: #{status['entrypoint'].inspect}" if status['entrypoint']
+        image_entrypoint = status['image_entrypoint'] unless Array(status['image_entrypoint']).empty?
+        if status['entrypoint']
+          lines << "  Entrypoint: #{status['entrypoint'].inspect}#{" (instead of the image's #{image_entrypoint.inspect})" if image_entrypoint}"
+        elsif image_entrypoint
+          lines << "  Entrypoint: #{image_entrypoint.inspect} (from the image)"
+        end
         status['problems'].each { |problem| lines << "  Problem:    #{problem}" }
         status['warnings'].each { |warning| lines << "  Warning:    #{warning}" }
         network = status['network']

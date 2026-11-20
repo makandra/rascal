@@ -6,8 +6,16 @@ This guide is for people and AI agents who change rascal. For using rascal, see 
 
 ## Setup
 
-You need Ruby 3 or newer and a running Docker daemon. Install the dependencies with
+You need Ruby 3.2 or newer and a running Docker daemon. Install the dependencies with
 `bundle install`.
+
+To try your working copy on a project, run its executable from the project directory, with the Ruby
+from rascal's `.ruby-version` (it needs the gems from `bundle install`, not the project's):
+
+```sh
+cd ~/projects/myapp
+mise exec ruby@3.4.8 -- ruby ~/projects/rascal/exe/rascal run rspec -- bundle exec rspec
+```
 
 
 ## How rascal is built
@@ -22,6 +30,9 @@ one of them.
 | Environment | `lib/rascal/environment.rb`, `service.rb`, `command_script.rb` | Starts a job's services, runs commands, cleans up, reports status. |
 | Docker | `lib/rascal/docker/` | Everything that calls `docker`. |
 
+`IOHelper` decides where output goes: `say` writes to stdout, which belongs to the command's output,
+`info` and `warning` write rascal's own messages to stderr.
+
 ### CI config: `Rascal::Gitlab`
 
 - `ConfigFile` reads the YAML with its local `include:` files, and marks `!reference` tags.
@@ -32,14 +43,26 @@ one of them.
   services and their aliases, and the expanded variables.
 - `Variables` expands variable references like GitLab does.
 
-A new GitLab keyword usually means a change in `Jobs`. A new rascal setting is read from the job's
-config in `EnvironmentBuilder` and passed to `Environment`. When unsure how GitLab treats something,
-look at GitLab's source (`lib/gitlab/ci/`), which the code comments point to.
+Where a change goes:
+
+- **A GitLab keyword that changes how jobs combine,** like `extends:`, goes into `Jobs`. A new global
+  keyword must be added to `Jobs::GLOBAL_KEYS`, or rascal takes it for a job.
+- **A keyword rascal should use,** like a service's `entrypoint`, is read in `EnvironmentBuilder` and
+  passed on to `Environment` or `Service`, and from there to `Docker::*`.
+- **A rascal setting** is read like a keyword. Also validate it as a problem (see
+  `EnvironmentBuilder#services_timeout`), show it in `Environment#status` and `CLI::Status`, and
+  document it in the README's Configuration section. If it may hold a `!reference`, add it to
+  `Jobs::KEYS_WITH_REFERENCES`.
+- **An option for a single command** goes into `Main.command_environment_options` and
+  `Base#command_overrides`.
+
+When unsure how GitLab treats something, look at GitLab's source (`lib/gitlab/ci/`), which the code
+comments point to.
 
 Problems and warnings are a core idea. A **problem** keeps a job's environment from starting, like a
 missing image, but `rascal clean`, `environments` and `status` still work for it. A **warning** is
-printed before each command, since it may make commands fail. Both are collected while building the
-environment, never raised.
+printed before each command, since it may make commands fail. Both are collected per job while
+building the environment. Only a file rascal cannot read at all, like broken YAML, raises an error.
 
 ### Environment and Docker
 
@@ -61,7 +84,7 @@ All tests are RSpec specs, of three kinds:
 
 | Tests | Location | What they cover | Speed |
 |---|---|---|---|
-| Unit specs | `spec/rascal/`, named like the class | Reading CI configs, variables, the command script, and other logic. Most tests belong here. | Fast |
+| Unit specs | `spec/rascal/`, named like the class | Reading CI configs, variables, the command script, and other logic. Most tests belong here. How jobs combine goes into `gitlab/jobs_spec.rb`, how rascal uses a job into `gitlab/environment_builder_spec.rb`. Both write a `.gitlab-ci.yml` with the helpers in `spec/support/gitlab.rb`. | Fast |
 | CLI specs | `spec/cli/`, one file per command, plus `starting_an_environment_spec.rb` | The command line, with a mocked Docker (`spec/support/docker_mock.rb`) that records which `docker` commands rascal would call. Also what real Docker cannot show easily, like `rascal shell` with a TTY or broken networks. | Fast |
 | Integration specs | `spec/integration/` | The real `rascal` executable against a real Docker daemon. | About 30 seconds, plus pulling small images on the first run |
 
@@ -109,7 +132,8 @@ temp directory may contain files owned by root, which need `sudo rm -rf` to remo
   owned by root in the project, since surprising changes confuse people and agents.
 - **Keep messages and the README in sync.** Troubleshooting entries in the README are headed by the
   text of the message they explain, so people find them by searching for the message.
-- **Document what users notice.** Update the README and add a line to the "Unreleased" section of
-  `CHANGELOG.md` for every change in behavior.
+- **Document what users notice.** Update the README, the command help in `lib/rascal/cli/main.rb`
+  where it applies, and add a line to the "Unreleased" section of `CHANGELOG.md` for every change in
+  behavior.
 - **Do not cache Docker state to save time.** Stale state causes worse problems than a few
   milliseconds per `docker` call.

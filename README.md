@@ -54,24 +54,31 @@ when something is missing.
 
 ## Installation
 
-Install rascal with a Ruby outside the project, not into the project's bundle. rascal needs neither
-the project's Ruby nor its gems, so one installation works for all projects, old and new:
+Install rascal with a Ruby of your own, not into the project's bundle. rascal needs neither the
+project's Ruby nor its gems, so one installation works for all projects, old and new. It needs
+Ruby 3.2 or newer.
+
+Ruby version managers like mise or rbenv switch to the project's Ruby inside a project directory
+(from `.ruby-version`), and that Ruby usually does not have rascal. So pick one Ruby for rascal, and
+use it to install and to run rascal:
 
 ```sh
-gem install rascal    # with any Ruby 3.0 or newer
+# With mise
+mise exec ruby@3.4.4 -- gem install rascal
+mise exec ruby@3.4.4 -- rascal run rspec -- bundle install
+
+# With rbenv
+RBENV_VERSION=3.4.4 gem install rascal
+RBENV_VERSION=3.4.4 rascal run rspec -- bundle install
+
+# Without a version manager
+gem install rascal
+rascal run rspec -- bundle install
 ```
 
-Ruby version managers like mise or rbenv switch to the project's Ruby inside the project directory
-(from `.ruby-version`), and that Ruby usually does not have rascal. Then run rascal with the Ruby you
-installed it for:
-
-```sh
-mise exec ruby@3.4 -- rascal run rspec -- bundle install
-RBENV_VERSION=3.4.1 rascal run rspec -- bundle install
-```
-
-`mise ls ruby` lists your Rubies, and `mise exec ruby@3.4 -- gem list rascal` checks one. rbenv
-names the Rubies that have rascal in its error message. The examples below just say `rascal`.
+The examples below just say `rascal`. If rascal is already installed, mise and rbenv name the Ruby
+that has it when you run `rascal` in a project whose Ruby does not. Check the version with
+`rascal --version`. This README describes the latest version.
 
 You also need:
 
@@ -104,13 +111,19 @@ When you run a command in an environment, rascal:
 **What stays between commands:** the services keep running, so a database you set up once keeps
 its data. Files in your project directory and in volumes stay too. Everything else in the job's
 container is gone after each command, including its home directory. So settings like
-`bundle config set` must go into the project (`bundle config set --local`) or into variables.
+`bundle config set` must go into the project (`bundle config set --local`) or into variables, see
+[Settings that need to persist](#settings-that-need-to-persist).
 
 **Services are reused as they are.** If you change a service's settings, or pull newer images with
 `rascal update`, run `rascal clean <job>` so the next command starts the services anew.
 
 rascal does not run the job's `script`, `before_script` or `cache`. These are written for one-off CI
 jobs, so rascal leaves setup to you, or to `before_shell`.
+
+**rascal names its Docker resources after the project directory's name**, not its path. Two checkouts
+with the same directory name share their environment, including databases, and `rascal clean` in one
+removes the other's. Give each checkout its own directory name, like `myapp-feature-x`. Prefer clones
+over Git worktrees: Git commands in the container cannot see a worktree's repository.
 
 
 ## Setting up a project
@@ -127,7 +140,45 @@ Pick the job that runs the tests, usually called `rspec`, `test` or similar. Its
 project's language versions and tools, and its services are what the tests need. The list includes
 jobs rascal cannot start, like deploy jobs.
 
-### 2. Run it once
+### 2. Look at the environment
+
+`rascal status` shows what rascal made of the job's config, without starting or downloading
+anything:
+
+```console
+$ rascal status rspec
+rspec
+  Image:      registry.example.com/myapp/test:2.0 (not downloaded, the next command downloads it)
+  Network:    rascal-myapp-rspec (does not exist)
+  Services:
+    db: postgres:16 (not downloaded), not created, the next command starts it
+    redis: redis:7 (not downloaded), not created, the next command starts it
+  Volumes:
+    /repo: /home/me/myapp
+    /builds: volume rascal-myapp-rspec-builds (does not exist)
+  Variables:
+    BUNDLE_PATH=tmp/cache/bundle
+    CI=true
+    ...
+  before_shell:
+    bundle check > /dev/null || bundle install
+  ssh_agent: false, services_timeout: 30
+```
+
+Check three things before you go on:
+
+- **Problems** keep the environment from starting. Each says what to do, see also
+  [Troubleshooting](#troubleshooting).
+- **`before_shell`** runs before each of your commands. The project's `.rascal` block may already
+  install dependencies there.
+- **`BUNDLE_PATH`** keeps gems in the project, so they stay installed between commands. Most CI
+  configs set it. If it is missing, see [Settings that need to persist](#settings-that-need-to-persist)
+  before you install gems.
+
+Later, `rascal status` also shows whether each service runs or how it exited, with the command to see
+its logs. With `--json`, it prints the same as JSON.
+
+### 3. Run it once
 
 ```console
 $ rascal run rspec -- true
@@ -138,13 +189,9 @@ Starting container for myapp-rspec_redis
 ```
 
 The first run downloads the images, which can take several minutes. If you run rascal with a
-timeout, give this run a generous one. If rascal cannot start the environment, it says why and what
-to do. See [Troubleshooting](#troubleshooting).
+timeout, give this run a generous one.
 
-If the project already has a `.rascal` block in `.gitlab-ci.yml`, look at it first. Its
-`before_shell` commands run before each of your commands, and may already install dependencies.
-
-### 3. Install dependencies and set up the database
+### 4. Install dependencies and set up the database
 
 Look at the job's `before_script` and `script` in `.gitlab-ci.yml` to see how CI does it, and run
 the equivalent steps. For a typical Rails project:
@@ -155,16 +202,13 @@ rascal run rspec -- bin/rails db:create db:schema:load
 ```
 
 Leave out steps that only make sense on a CI runner, like ones that use `CI_JOB_TOKEN` to fetch
-private repositories. Use [`ssh_agent`](#private-dependencies-over-ssh) instead. Steps like
-`cp config/database.ci.yml config/database.yml` change your project directory, and may overwrite a
-file Git ignores, so look before you copy.
-
-Gems stay installed between commands if the job sets `BUNDLE_PATH` to a directory in the project,
-as most CI configs do to cache gems. Otherwise, see [Settings that need to persist](#settings-that-need-to-persist).
+private repositories, and fetch private dependencies [over SSH](#private-dependencies-over-ssh)
+instead. Steps like `cp config/database.ci.yml config/database.yml` change your project directory.
+Run them if the file is missing. If it exists, it may be a local file that Git ignores, so compare
+it with the CI version before you replace it.
 
 You only need the steps for what you want to run. A model spec may need only gems and a database,
-while browser tests may also need Node packages and compiled assets. An existing `before_shell` may
-cover only part of CI's setup.
+while browser tests may also need Node packages (`yarn install`) and compiled assets.
 
 **Setup can change files in Git.** For example, `bundle install` may rewrite `Gemfile.lock` if the
 Gemfile treats CI differently (rascal sets `CI` and `GITLAB_CI`, see [Variables](#variables)). Check
@@ -172,7 +216,7 @@ Gemfile treats CI differently (rascal sets `CI` and `GITLAB_CI`, see [Variables]
 Some changes come back with every command. If you need to change dependencies, see
 [Changing dependencies](#changing-dependencies).
 
-### 4. Make it repeatable (optional)
+### 5. Make it repeatable (optional)
 
 Commands in `before_shell` run before every command, so the environment is always ready, even after
 a teardown or when someone else uses it. Add a `.rascal` block to `.gitlab-ci.yml`, which GitLab
@@ -206,7 +250,8 @@ echo .rascal.yml >> "$(git rev-parse --git-path info/exclude)"
 ```
 
 `.rascal.yml` overrides the `.rascal` block: its lists, like `before_shell`, replace the block's,
-and its hashes, like `variables`, are merged into the block's.
+and its hashes, like `variables`, are merged into the block's. Wherever this README says "the
+`.rascal` block", `.rascal.yml` works too. In a project you do not maintain, use `.rascal.yml`.
 
 
 ## Working in the environment
@@ -237,8 +282,9 @@ What to expect from `rascal run`:
   waiting for input, like a forgotten `debugger` call, gets none instead of hanging. A pipe that
   stays open without input still makes such a command wait.
 - **Exit status:** your command's, or 128 plus the signal number if it was killed. If rascal itself
-  fails, for example for an unknown environment, it exits with 1 and explains why on stderr. If Docker
-  cannot start the container, for example because the image has no bash, the status is 125 to 127.
+  fails, for example for an unknown job, it exits with 1, like many failing commands, and explains why
+  on stderr. If Docker cannot start the container, for example because the image has no bash, the
+  status is 125 to 127. 127 is also what bash returns for a command the image does not have.
 - **Stopping:** if you stop rascal, for example with a timeout, it removes the command's container.
   Files the command created in the project may then still belong to root, until the next command
   gives them back.
@@ -251,7 +297,9 @@ What to expect from `rascal run`:
   test setup gives each its own database.
 
 For an interactive shell, like for a Rails console or a debugger, use `rascal shell rspec`. It runs
-bash with `before_shell` and `after_shell` around it, just like a command.
+bash with `before_shell` and `after_shell` around it, just like a command. It needs a terminal.
+Without one, like as an AI agent, debug with commands instead: run single examples, add output to
+the code, or use `bin/rails runner` to inspect state.
 
 Files you edit on your machine are visible in the container immediately. Files the container
 creates, like `Gemfile.lock` changes or installed gems, belong to you afterwards (on Linux; Docker
@@ -274,8 +322,7 @@ Some Gemfiles leave out gems when `CI` is set, typically private gems that CI ca
 for `ENV['CI']` or `ENV.key?('CI')` in the Gemfile. Since rascal sets `CI` like GitLab does, every
 Bundler command, even `bundle exec`, then writes a `Gemfile.lock` without these gems: their `GIT`
 block disappears. To change dependencies in such a project, run the change without these variables,
-and with your SSH agent to fetch the private gems (if you are an AI agent, ask your user before you
-use [`--ssh-agent`](#private-dependencies-over-ssh)):
+and with your [SSH agent](#private-dependencies-over-ssh) to fetch the private gems:
 
 ```sh
 git checkout HEAD -- Gemfile.lock   # start from the committed lockfile (commit changes to keep first)
@@ -297,8 +344,9 @@ Settings for the `.rascal` block or `.rascal.yml` that many projects need. See
 
 ### Settings that need to persist
 
-Each command runs in a new container, so set what the project needs on every command as variables
-in the `.rascal` block or `.rascal.yml`:
+Each command runs in a new container, which is gone afterwards with everything outside the project
+directory and volumes: gems installed elsewhere, and settings made with `bundle config set` (without
+`--local`). So set what the project needs on every command as variables in the `.rascal` block:
 
 ```yaml
 variables:
@@ -306,35 +354,44 @@ variables:
   BUNDLE_PATH: tmp/bundle       # if the job does not keep gems in the project
 ```
 
-### Private dependencies over SSH
-
-If `bundle install` or `yarn install` fetches private Git repositories over SSH, enable access to
-your SSH agent:
+To keep gems out of the project directory, use a volume instead:
 
 ```yaml
-ssh_agent: true
+volumes:
+  gems: /gems
+variables:
+  BUNDLE_PATH: /gems
+```
+
+### Private dependencies over SSH
+
+If `bundle install` or `yarn install` fetches private Git repositories over SSH, give the commands
+that need it access to your SSH agent:
+
+```sh
+rascal run rspec --ssh-agent -- bundle install
 ```
 
 rascal then mounts your SSH agent and your `~/.ssh/known_hosts` into the container. It does not
-mount `~/.ssh/config`, so host aliases from there do not work.
-
-To give the agent only to the commands that need it, use `--ssh-agent` instead, like
-`rascal run rspec --ssh-agent -- bundle install`. Test runs and other commands then cannot use your
-keys.
+mount `~/.ssh/config`, so host aliases from there do not work. To give the agent to every command,
+set `ssh_agent: true` in the `.rascal` block. `--no-ssh-agent` keeps it from a single command.
 
 **While a command runs, any code in the container can use all keys in the agent**, including
-install scripts of dependencies. With Docker Engine on Linux, you can start a separate agent that
-only holds a key with read access to your Git server, and point rascal to it:
+install scripts of dependencies. So give it only to the commands that need it. With Docker Engine on
+Linux, you can also start a separate agent that only holds a key with read access to your Git
+server, and point rascal to it:
 
 ```sh
 ssh-agent -a /tmp/git-read-agent.sock > /dev/null
 SSH_AUTH_SOCK=/tmp/git-read-agent.sock ssh-add ~/.ssh/git_read_key
-SSH_AUTH_SOCK=/tmp/git-read-agent.sock rascal run rspec -- bundle install
+SSH_AUTH_SOCK=/tmp/git-read-agent.sock rascal run rspec --ssh-agent -- bundle install
 ```
 
 Docker Desktop (on macOS, and on Linux) always provides the agent of your desktop session, with all
-its keys, and ignores `SSH_AUTH_SOCK`. If you are an AI agent and no separate agent with a limited
-key is available, ask your user before you enable `ssh_agent`.
+its keys, and ignores `SSH_AUTH_SOCK`.
+
+**If you are an AI agent,** ask your user before you give a command your SSH agent, unless a
+separate agent with a limited key is available.
 
 The container needs an SSH client, and must run as root (or as your user), since the agent's socket
 belongs to you.
@@ -366,8 +423,9 @@ jobs:
       entrypoint: ['']
 ```
 
-The job keeps its image. Check what the entrypoint did (`docker image inspect --format
-'{{json .Config.Entrypoint}}' <image>` shows it), and do what your commands need yourself.
+The job keeps its image. Once the image is downloaded, `rascal status` shows its entrypoint. To see
+what it did, look at it, like `rascal run rspec -- cat /docker-entrypoint.sh`, and do what your
+commands need yourself.
 
 
 ## Tearing down
@@ -387,7 +445,11 @@ job's Docker network. With `--volumes`, it also removes the job's named volumes:
 `/builds`, and the volumes from the `.rascal` block. `--all` does this for every environment of the
 project.
 
-Files in your project directory stay, like gems installed into it. Remove them like any other file.
+These stay:
+
+- files in your project directory, like gems installed into it, and your `.rascal.yml`;
+- the downloaded images, which other projects may use too. Remove them with `docker image rm`;
+- an empty lock file per job in the temp directory, like `/tmp/rascal-myapp-rspec.lock`.
 
 To check that nothing is left, list what Docker has for the project (`myapp` being the name of the
 project directory):
@@ -401,8 +463,8 @@ docker volume ls --filter name=rascal-myapp-
 
 ## Commands
 
-All commands take the job's name as the environment, and look for `.gitlab-ci.yml` in the current
-directory.
+Commands that work on an environment take the job's name. All look for `.gitlab-ci.yml` in the
+current directory.
 
 | Command | What it does |
 |---|---|
@@ -443,9 +505,7 @@ rascal names everything after the project directory and the job:
 | Volume for `/builds` | `rascal-myapp-rspec-builds` |
 | Volume from the `.rascal` block | `rascal-myapp-rspec-cache`, after its name |
 
-Only the name of the directory counts, not its path. **Two project directories with the same name
-share their environments**, including databases. Give each checkout its own directory name, like
-`myapp-feature-x`.
+Only the name of the directory counts, not its path (see [How it works](#how-it-works)).
 
 
 ## Configuration
@@ -558,34 +618,8 @@ Variables are resolved like in a GitLab job:
 
 rascal explains most problems itself. These are the messages you may see, and what to do.
 
-To see an environment as rascal sees it, run `rascal status <job>`. It starts nothing, and shows:
-
-- what rascal made of the CI config: the image, the services with the ports rascal waits for, the
-  variables from the CI config and the `.rascal` block (including any secrets you put there),
-  `before_shell` and `after_shell`, and problems or warnings;
-- what exists in Docker: whether images are downloaded, whether each service is running or how it
-  exited, with the command to see its logs, and the network, volumes and running commands.
-
-```console
-$ rascal status rspec
-rspec
-  Image:      registry.example.com/myapp/test:2.0
-  Network:    rascal-myapp-rspec
-  Services:
-    db: postgres:16, running since 2026-11-20T10:00:00Z
-      Waits for port 5432
-      Logs: docker logs rascal-myapp-rspec_db
-    redis: redis:7, exited with exit code 1
-      Logs: docker logs rascal-myapp-rspec_redis
-  Volumes:
-    /repo: /home/me/myapp
-    /builds: volume rascal-myapp-rspec-builds
-  Variables:
-    CI=true
-    ...
-```
-
-With `--json`, it prints the same as JSON, for scripts and agents.
+Run `rascal status <job>` to see what rascal made of the job's config, and what of it runs (see
+[Look at the environment](#2-look-at-the-environment)).
 
 #### `Could not find a .gitlab-ci.yml in ...`
 
@@ -638,10 +672,10 @@ the project uses (`.ruby-version`, `.tool-versions`). Set it in the `.rascal` bl
 image itself, like from a `Dockerfile`, you can also build it under the name from the message.
 `rascal update` cannot update such an image.
 
-#### `rascal: command not found` inside a project
+#### `rascal is not provided by the active ruby` or `rascal: command not found` inside a project
 
 A Ruby version manager switched to the project's Ruby, which does not have rascal. Run rascal with
-the Ruby you installed it for, see [Installation](#installation).
+the Ruby you installed it for, which mise's message names. See [Installation](#installation).
 
 #### `Cannot connect to the Docker daemon` or `failed to connect to the docker API`
 
@@ -649,10 +683,8 @@ Start Docker.
 
 #### Gems or packages are missing after they were installed
 
-They were installed outside the project directory, in a container that is gone now. Set
-`BUNDLE_PATH` (or the equivalent for your package manager) to a directory in the project, as a
-variable in the `.rascal` block. The same goes for settings made with `bundle config set` without
-`--local`.
+They were installed outside the project directory, in a container that is gone now. See
+[Settings that need to persist](#settings-that-need-to-persist).
 
 #### `does not accept connections ... continuing anyway`
 

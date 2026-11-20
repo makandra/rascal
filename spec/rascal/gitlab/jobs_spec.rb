@@ -462,6 +462,60 @@ module Rascal
           expect(environment.command_containers.entrypoint).to eq ['']
         end
 
+        it "keeps the image the .rascal block sets, or a referenced one, when .rascal.yml changes only the entrypoint" do
+          gitlab_jobs(<<~YAML)
+            .base:
+              image: base-image:1
+            .rascal:
+              jobs:
+                replaced:
+                  image: fixed-image:2
+            replaced:
+              image: job-image:1
+            referenced:
+              image: !reference [.base, image]
+          YAML
+          @tmp_dir.join('repo', '.rascal.yml').write(<<~YAML)
+            jobs:
+              replaced:
+                image:
+                  entrypoint: ['']
+              referenced:
+                image:
+                  entrypoint: ['']
+          YAML
+          jobs = Jobs.new(@tmp_dir.join('repo', '.gitlab-ci.yml'))
+
+          expect(jobs.environment('replaced').image.name).to eq 'fixed-image:2'
+          expect(jobs.environment('referenced').image.name).to eq 'base-image:1'
+          expect(jobs.environment('referenced').command_containers.entrypoint).to eq ['']
+        end
+
+        it 'takes the image from a reference in the .rascal block, and ignores a broken one in a job whose image the .rascal block replaces' do
+          jobs = gitlab_jobs(<<~YAML)
+            .base:
+              image: base-image:1
+            .rascal:
+              image: !reference [.base, image]
+              jobs:
+                referenced:
+                  image:
+                    entrypoint: ['']
+                replaced:
+                  image:
+                    name: fixed-image:2
+                    entrypoint: ['']
+            referenced:
+              image: job-image:1
+            replaced:
+              image: !reference [.missing, image]
+          YAML
+
+          expect(jobs.environment('referenced').image.name).to eq 'base-image:1'
+          expect(jobs.environment('replaced')).to have_attributes(problems: [])
+          expect(jobs.environment('replaced').image.name).to eq 'fixed-image:2'
+        end
+
         it 'lets .rascal job config override the .rascal block' do
           environment = from_config(<<~YAML, 'job')
             .rascal:

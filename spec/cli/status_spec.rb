@@ -25,7 +25,7 @@ describe 'rascal status' do
           - name: deploy-db:1
             alias: db
     YAML
-    docker.image_exists('job-image:latest')
+    docker.image_exists('job-image:latest', entrypoint: ['/docker-entrypoint.sh'])
     docker.image_exists('postgres:16', exposed_ports: ['5432/tcp'])
     docker.container_exists('rascal-app-job_db', running: true, started_at: Time.utc(2026, 11, 20, 10))
     docker.container_exists('rascal-app-job_redis', exit_code: 1)
@@ -37,6 +37,7 @@ describe 'rascal status' do
     expect(result.stdout).to include(<<~TEXT)
       job
         Image:      job-image:latest
+        Entrypoint: ["/docker-entrypoint.sh"] (from the image)
         Network:    rascal-app-job
         Services:
           db: postgres:16, running since 2026-11-20T10:00:00Z
@@ -85,6 +86,14 @@ describe 'rascal status' do
     expect(job).to include('name' => 'job', 'image' => 'job-image:latest', 'image_present' => true)
     expect(job['services'].first).to include('aliases' => ['db'], 'state' => 'running', 'container' => 'rascal-app-job_db')
     expect(job['services'][1]).to include('state' => 'exited', 'exit_code' => 1)
+  end
+
+  it "shows the image's own entrypoint next to one rascal's settings replace it with" do
+    File.write(File.join(project_dir, '.rascal.yml'), "jobs:\n  job:\n    image:\n      entrypoint: ['']\n")
+
+    result = run_rascal!('status', 'job')
+
+    expect(result.stdout).to include(%(  Entrypoint: [""] (instead of the image's ["/docker-entrypoint.sh"])\n))
   end
 
   it 'starts and downloads nothing' do

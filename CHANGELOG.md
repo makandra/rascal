@@ -8,6 +8,7 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
 
 ### Breaking changes
 
+- Require Ruby 3.2 or newer for rascal itself. Projects can still use any Ruby in their images.
 - Predefine the variables `CI`, `GITLAB_CI`, `CI_JOB_NAME`, `CI_PROJECT_NAME`, `CI_PROJECT_DIR` and
   `CI_BUILDS_DIR`, like GitLab does. **This may change how your app and tools behave in a rascal
   environment**, if they check for `CI` or `GITLAB_CI`. Override or remove them in the `.rascal` block if needed.
@@ -39,7 +40,8 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
 ### Working with environments
 
 - Add `rascal status`, which shows what rascal made of a job's config, and what of the environment
-  exists in Docker, like whether a service runs or how it exited. `--json` prints it for scripts.
+  exists in Docker, like whether a service runs or how it exited, or what the image's entrypoint is.
+  `--json` prints it for scripts.
 - Add the options `--env NAME=VALUE`, `--unset-env NAME` and `--ssh-agent` to `rascal run` and
   `rascal shell`, which change the container for a single command, like for updating dependencies.
   Options may also come after the environment's name.
