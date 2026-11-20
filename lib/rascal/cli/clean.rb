@@ -3,14 +3,9 @@ require 'rascal'
 module Rascal
   module CLI
     class Clean < Base
-      def initialize(thor, options, environment_name)
-        @environment_name = if options[:all]
-          fail_with_error('Cannot give --all and an environment name!') if environment_name
-          :all
-        else
-          environment_name
-        end
-        super(thor, options)
+      def initialize(options, environment_name)
+        super(options)
+        @environment_name = name_or_all(environment_name)
       end
 
       def run

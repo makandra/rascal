@@ -1,11 +1,9 @@
 module Rascal
   module Docker
     module Volume
-      class Base
+      class Named
         include IOHelper
-      end
 
-      class Named < Base
         def initialize(name, container_path)
           @prefixed_name = "#{NAME_PREFIX}#{name}"
           @container_path = container_path
@@ -15,9 +13,13 @@ module Rascal
           "#{@prefixed_name}:#{@container_path}"
         end
 
+        def status
+          { 'path' => @container_path, 'volume' => @prefixed_name, 'exists' => exists? }
+        end
+
         def clean
           if exists?
-            say "Removing volume #{@prefixed_name}"
+            info "Removing volume #{@prefixed_name}"
             Docker.interface.run(
               'volume',
               'rm',
@@ -27,24 +29,29 @@ module Rascal
         end
 
         def exists?
-          Docker.interface.run(
+          !Docker.interface.run(
             'volume',
             'ls',
             '--quiet',
             '--filter', "name=^#{@prefixed_name}$",
-            output: :id,
-          )
+            output: :text,
+          ).to_s.empty?
         end
       end
 
-      class Bind < Base
-        def initialize(local_path, container_path)
+      class Bind
+        def initialize(local_path, container_path, read_only: false)
           @local_path = local_path
           @container_path = container_path
+          @read_only = read_only
         end
 
         def to_param
-          "#{@local_path}:#{@container_path}"
+          "#{@local_path}:#{@container_path}#{':ro' if @read_only}"
+        end
+
+        def status
+          { 'path' => @container_path, 'directory' => @local_path.to_s }
         end
 
         def clean

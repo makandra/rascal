@@ -1,0 +1,73 @@
+# A typical config for a Rails app, using the GitLab features that rascal supports:
+# global variables, workflow rules, YAML anchors and merge keys, services and caches.
+
+.rascal:
+  volumes:
+    cache: /cache
+  before_shell:
+    - bundle check || bundle install
+    - bin/rails db:create db:migrate
+
+variables:
+  IMAGE_TAG: '1.2.3'
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+
+stages:
+  - lint
+  - test
+
+.caches:
+  - &bundle_cache
+    key:
+      files:
+        - Gemfile.lock
+    paths:
+      - tmp/cache/bundle
+    policy: pull
+
+.service-containers:
+  - &postgres
+    name: postgres:16
+    alias: db
+    command: ['postgres', '-c', 'fsync=off']
+  - &redis
+    name: redis:7.0
+    alias: redis
+
+.environment: &environment
+  image: registry.example.com/app/test-env:$IMAGE_TAG
+  before_script:
+    - bundle check || bundle install
+  variables: &variables
+    GITLAB_CI: 'true'
+    RAILS_ENV: test
+    BUNDLE_PATH: ./tmp/cache/bundle
+    COREPACK_HOME: $CI_PROJECT_DIR/tmp/cache/corepack
+  cache:
+    - *bundle_cache
+
+default:
+  interruptible: true
+
+checks:
+  <<: *environment
+  stage: lint
+  script:
+    - bundle exec rubocop
+
+rspec:
+  <<: *environment
+  stage: test
+  services:
+    - *postgres
+    - *redis
+  variables:
+    <<: *variables
+    REDIS_HOST: redis
+  script:
+    - bin/rails db:create db:schema:load
+    - bundle exec rspec

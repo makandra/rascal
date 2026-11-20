@@ -1,6 +1,10 @@
 module Rascal
   module Docker
     class Network
+      include IOHelper
+
+      attr_reader :prefixed_name
+
       def initialize(name)
         @name = name
         @prefixed_name = "#{NAME_PREFIX}#{name}"
@@ -12,6 +16,9 @@ module Rascal
           'create',
           @prefixed_name,
         )
+      rescue Interface::Error => e
+        # Another rascal command for the same environment was faster.
+        raise unless e.message.include?('already exists')
       end
 
       def disconnect(container_id)
@@ -31,6 +38,7 @@ module Rascal
 
       def clean
         if exists?
+          info "Removing network #{@prefixed_name}"
           Docker.interface.run(
             'network',
             'rm',

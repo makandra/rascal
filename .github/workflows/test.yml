@@ -13,16 +13,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - ruby: 3.2.0
+        - ruby: '3.3'
           gemfile: Gemfile
-        - ruby: 3.4.1
+        - ruby: '3.4'
           gemfile: Gemfile
-        - ruby: 4.0.6
+        - ruby: '4.0'
           gemfile: Gemfile
     env:
       BUNDLE_GEMFILE: "${{ matrix.gemfile }}"
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Install ruby
       uses: ruby/setup-ruby@v1
       with:

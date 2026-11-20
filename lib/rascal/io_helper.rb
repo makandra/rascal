@@ -15,6 +15,17 @@ module Rascal
       stdout.puts(message)
     end
 
+    # Reports what rascal does, like starting a service. Goes to stderr, so the
+    # output of a command stays clean for whoever reads it.
+    def info(message)
+      stderr.puts(message)
+    end
+
+    # Reports something that may make commands fail, on stderr.
+    def warning(message)
+      stderr.puts("Warning: #{message}")
+    end
+
     def stdout
       IOHelper.stdout
     end

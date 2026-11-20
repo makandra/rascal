@@ -3,13 +3,13 @@ require 'rascal'
 module Rascal
   module CLI
     class Shell < Base
-      def initialize(thor, options, environment_name)
+      def initialize(options, environment_name)
         @environment_name = environment_name
-        super(thor, options)
+        super(options)
       end
 
       def run
-        find_environment(@environment_name)&.run_shell
+        find_environment(@environment_name).run_shell(**command_overrides)
       end
     end
   end
