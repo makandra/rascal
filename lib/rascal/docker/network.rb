@@ -5,6 +5,11 @@ module Rascal
 
       attr_reader :prefixed_name
 
+      # Whether a network with this id (also a short one) or name exists.
+      def self.exists?(id_or_name)
+        !Docker.interface.run('network', 'inspect', '--format', '{{.Id}}', id_or_name, output: :text, allow_failure: true).to_s.empty?
+      end
+
       def initialize(name)
         @name = name
         @prefixed_name = "#{NAME_PREFIX}#{name}"

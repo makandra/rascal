@@ -67,11 +67,14 @@ module Rascal
       # or that an older rascal disconnected, still records its network in its
       # network mode. Such a container may even be running, which Docker allows
       # after its network was pruned, but it cannot be connected to another.
+      #
+      # Only removes the container if its network is really gone. Older rascal
+      # versions recorded networks by their short id, so compare by asking Docker.
       def remove_if_network_missing(network)
         return unless exists?
         recorded = attached_network_ids
         recorded = [network_mode].compact if recorded.empty?
-        return if recorded.empty? || recorded.include?(network.id)
+        return if recorded.empty? || recorded.include?(network.id) || recorded.any? { |id_or_name| Network.exists?(id_or_name) }
 
         info "Removing container for #{@name}, its network no longer exists"
         remove_container

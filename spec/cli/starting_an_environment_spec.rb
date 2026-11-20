@@ -97,6 +97,26 @@ describe 'starting an environment' do
       expect(docker.commands).not_to include(match(/network connect .* #{old_id}/))
     end
 
+    it 'keeps it, and connects it again, when it has no network but was created with the current one by its short id, like by older versions' do
+      docker.container_exists('rascal-app-job_service', running: true, network_mode: DockerMockInterface::NETWORK_ID[0, 4])
+      id = docker.container_id('rascal-app-job_service')
+
+      run_rascal!('run', 'job', '--', 'true')
+
+      expect(docker.commands).not_to include(match(/container (rm|create)/))
+      expect(docker.commands).to include("docker network connect --alias service deadbeef #{id}")
+    end
+
+    it 'keeps a stopped one without network that was created with the current network, and connects it again' do
+      docker.container_exists('rascal-app-job_service', network_mode: DockerMockInterface::NETWORK_ID)
+      id = docker.container_id('rascal-app-job_service')
+
+      run_rascal!('run', 'job', '--', 'true')
+
+      expect(docker.commands).not_to include(match(/container (rm|create)/))
+      expect(docker.commands).to include("docker network connect --alias service deadbeef #{id}", "docker container start #{id}")
+    end
+
     it 'keeps it when it is attached to the current network' do
       docker.container_exists('rascal-app-job_service', network_id: DockerMockInterface::NETWORK_ID)
 

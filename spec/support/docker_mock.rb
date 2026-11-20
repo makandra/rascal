@@ -102,6 +102,9 @@ class DockerMockInterface < Rascal::Docker::Interface
       @pull_failures.key?($1) ? [:fail, @pull_failures[$1]] : "[Docker mock] Pulling #{$1}"
     when /network ls.*name=\^(.*)\$/
       NETWORK_ID
+    when /network inspect --format \{\{\.Id\}\} (\S+)/
+      # Only the environment's network exists, by its id, a short id or its name.
+      NETWORK_ID.start_with?($1) || $1.start_with?('rascal-') ? NETWORK_ID : [:fail, "Error response from daemon: network #{$1} not found"]
     when /volume ls.*name=\^(.*)\$/
       # Like docker, prints the name with --quiet.
       $1 if @volumes.key?($1)
