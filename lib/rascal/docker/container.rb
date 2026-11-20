@@ -6,7 +6,7 @@ module Rascal
     class Container
       include IOHelper
 
-      attr_reader :image, :prefixed_name
+      attr_reader :prefixed_name
 
       # `image` is a Docker::Image.
       def initialize(name, image)

@@ -204,7 +204,7 @@ module Rascal
     end
 
     def with_start_lock
-      File.open(File.join(Dir.tmpdir, "#{Docker::NAME_PREFIX}#{@docker_name}.lock"), File::RDWR | File::CREAT, 0o600) do |lock|
+      File.open(File.join(Dir.tmpdir, "#{@network.prefixed_name}.lock"), File::RDWR | File::CREAT, 0o600) do |lock|
         lock.flock(File::LOCK_EX)
         yield
       end

@@ -8,6 +8,15 @@ module Rascal
 
       describe 'the environment' do
 
+        it 'puts the hint about missing config from the Job into its messages, and builds the same environment twice' do
+          job = Job.new('rspec', 'rspec', {}, [{}], [], [], 'It may come from an include. ')
+          builder = described_class.new(job, project_dir: Pathname.new('/projects/app'))
+
+          problems = 2.times.collect { builder.build.problems }
+
+          expect(problems).to eq [["Job 'rspec' has no image. It may come from an include. Set `image:` in the job, in `default:`, or in the `.rascal` block (`.rascal: jobs: rspec: image:`)."]] * 2
+        end
+
         it 'needs only a Job and the project directory' do
           job = Job.new('rspec', 'tests', { 'image' => 'ruby:$RUBY' }, [{ 'RUBY' => '3.4' }, {}, { 'EXTRA' => 'yes' }], [], ['A warning'], '')
 
