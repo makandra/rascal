@@ -57,7 +57,7 @@ module Rascal
       end
 
       def each_environment(name, &block)
-        return enum_for(:each_environment) unless block_given?
+        return enum_for(:each_environment, name) unless block_given?
 
         if name == :all
           definition = environment_definition

@@ -376,6 +376,7 @@ directory.
 | `rascal run <job> -- <command> [args...]` | Runs a command, without a terminal, and exits with its status. |
 | `rascal shell <job>` | Opens an interactive bash. Needs a terminal. |
 | `rascal environments` | Lists the project's jobs, one per line, including ones rascal cannot start. |
+| `rascal status [<job>] [--json]` | Shows what rascal made of the job's config, and what of it exists in Docker (see [Troubleshooting](#troubleshooting)). Without a job, shows all. |
 | `rascal clean <job> [--volumes]` | Stops and removes the job's services and network, and with `--volumes` its volumes. |
 | `rascal clean --all [--volumes]` | The same for all environments of the project. |
 | `rascal update <job>` | Pulls the latest versions of the job's images. Run `rascal clean <job>` afterwards to restart services with them. |
@@ -524,6 +525,35 @@ Variables are resolved like in a GitLab job:
 
 rascal explains most problems itself. These are the messages you may see, and what to do.
 
+To see an environment as rascal sees it, run `rascal status <job>`. It starts nothing, and shows:
+
+- what rascal made of the CI config: the image, the services with the ports rascal waits for, the
+  variables from the CI config and the `.rascal` block (including any secrets you put there),
+  `before_shell` and `after_shell`, and problems or warnings;
+- what exists in Docker: whether images are downloaded, whether each service is running or how it
+  exited, with the command to see its logs, and the network, volumes and running commands.
+
+```console
+$ rascal status rspec
+rspec
+  Image:      registry.example.com/myapp/test:2.0
+  Network:    rascal-myapp-rspec
+  Services:
+    db: postgres:16, running since 2026-11-20T10:00:00Z
+      Waits for port 5432
+      Logs: docker logs rascal-myapp-rspec_db
+    redis: redis:7, exited with exit code 1
+      Logs: docker logs rascal-myapp-rspec_redis
+  Volumes:
+    /repo: /home/me/myapp
+    /builds: volume rascal-myapp-rspec-builds
+  Variables:
+    CI=true
+    ...
+```
+
+With `--json`, it prints the same as JSON, for scripts and agents.
+
 #### `Could not find a .gitlab-ci.yml in ...`
 
 Run rascal in the project's root directory, or pass `--config-file`.
@@ -599,21 +629,14 @@ The service needs longer to start, or listens on a port its image does not decla
 #### `Service ... is not running anymore`
 
 The service stopped, usually because of missing settings, like a database password. Its logs say
-why, like `docker logs rascal-myapp-rspec_db` (see [Docker resources](#docker-resources) for the
-names). Fix its variables in the `.rascal` block, then run `rascal clean <job>`.
+why: `rascal status <job>` shows the command, like `docker logs rascal-myapp-rspec_db`. Fix its variables in the `.rascal` block, then run `rascal clean <job>`.
 
-#### `detected dubious ownership` or `not a git repository` from Git in the container
+#### `not a git repository` from Git in the container
 
-Git in the container refuses the project, since it belongs to you and not to the container's user.
-This also breaks gemspecs that call `git ls-files`. Add this to `before_shell`:
-
-```yaml
-before_shell:
-  - git config --global --add safe.directory /repo
-```
-
-In a Git worktree, Git in the container cannot work at all, since the worktree's `.git` points to
-the main repository outside the project directory. Run Git on your machine instead, or use a clone.
+The project is a Git worktree, whose `.git` points to the main repository outside the project
+directory, which the container cannot see. Run Git on your machine instead, or use a clone. (In a
+clone, Git works in the container: rascal tells it to trust the project, which belongs to you and
+not to the container's user.)
 
 #### `Host key verification failed` or `Permission denied (publickey)` when fetching dependencies
 

@@ -37,9 +37,13 @@ class DockerMockInterface < Rascal::Docker::Interface
     }
   end
 
-  def container_exists(name, running: false, network_id: nil, started_at: Time.now - 3600)
+  # A container that was created, and with `running` or `exit_code` also started.
+  # `error` is why Docker could not start it.
+  def container_exists(name, running: false, exit_code: nil, error: nil, network_id: nil, started_at: Time.now - 3600)
     @containers[name] = { id: Digest::SHA1.hexdigest("container-#{name}") }
-    @containers[name][:State] = { Running: true, StartedAt: started_at.utc.iso8601(9) } if running
+    @containers[name][:State] = { Status: 'created', Running: false, ExitCode: error ? 127 : 0, Error: error.to_s, StartedAt: '0001-01-01T00:00:00Z' }
+    @containers[name][:State] = { Status: 'running', Running: true, StartedAt: started_at.utc.iso8601(9) } if running
+    @containers[name][:State] = { Status: 'exited', Running: false, ExitCode: exit_code, StartedAt: started_at.utc.iso8601(9) } if exit_code
     @containers[name][:NetworkSettings] = { Networks: { 'some-network' => { 'NetworkID' => network_id } } } if network_id
   end
 
@@ -99,10 +103,11 @@ class DockerMockInterface < Rascal::Docker::Interface
     when /volume ls.*name=\^(.*)\$/
       # Like docker, prints the name with --quiet.
       $1 if @volumes.key?($1)
-    when /container ps.*name=\^\/(.*)\$/
-      @containers[$1][:id]
-    when /container ps.*name=\^\/(\S*)\z/
-      @containers.select { |name, _| name.start_with?($1) }.values.collect { |container| container[:id] }.join("\n")
+    when /container ps .*--filter name=(\S+)\z/
+      # Like docker, matches the filter as a regular expression against "/" and the name.
+      filter = Regexp.new($1)
+      matches = @containers.select { |name, container| container[:id] && "/#{name}".match?(filter) }
+      command.include?('{{.Names}}') ? matches.keys.join("\n") : matches.values.collect { |container| container[:id] }.join("\n")
     when /container create --name (\S*)/
       new_id = "%08x" % (@counter += 1)
       @containers[$1] = { id: new_id }

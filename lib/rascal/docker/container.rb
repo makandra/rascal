@@ -51,6 +51,32 @@ module Rascal
         !!container_info&.dig('State', 'Running')
       end
 
+      # For `rascal status`: the container's name, and its state like "running", "exited"
+      # or "missing", with when it started and how it exited.
+      def status
+        state = container_info&.dig('State')
+        return { 'container' => @prefixed_name, 'state' => 'missing' } unless state
+
+        status = state['Status'] || (state['Running'] ? 'running' : 'exited')
+        {
+          'container' => @prefixed_name,
+          'state' => status,
+          'started_at' => started_at&.iso8601,
+          'exit_code' => (state['ExitCode'] if %w[exited dead].include?(status)),
+          # Why Docker could not start it, like a missing command.
+          'error' => (state['Error'] unless state['Error'].to_s.empty?),
+        }.compact
+      end
+
+      def image_present?
+        !@image.to_s.empty? && !image_info.nil?
+      end
+
+      # Names of one-off containers of commands that run now, or were left over.
+      def run_names
+        Docker.interface.run('container', 'ps', '--all', '--format', '{{.Names}}', '--filter', run_name_filter, output: :text).to_s.split
+      end
+
       def exists?
         !!id
       end
@@ -115,7 +141,7 @@ module Rascal
 
       # Removes one-off containers left over from commands that were killed.
       def clean_runs
-        ids = Docker.interface.run('container', 'ps', '--all', '--quiet', '--filter', "name=^/#{@prefixed_name}#{RUN_SUFFIX}", output: :text).to_s.split
+        ids = Docker.interface.run('container', 'ps', '--all', '--quiet', '--filter', run_name_filter, output: :text).to_s.split
         return if ids.empty?
 
         info "Removing #{ids.size} leftover command container#{'s' if ids.size > 1} for #{@name}"
@@ -184,6 +210,12 @@ module Rascal
       end
 
       private
+
+      # Matches only containers of commands, not service containers of a job whose name starts the
+      # same, like `job-run-tests` for `job`.
+      def run_name_filter
+        "name=^/#{Regexp.escape(@prefixed_name)}#{RUN_SUFFIX}[0-9a-f]{8}$"
+      end
 
       def remove_on_signal(run_name)
         previous_handlers = %w[INT TERM HUP].to_h do |signal|

@@ -16,7 +16,7 @@ describe 'rascal shell' do
     run_rascal!('shell', 'job')
 
     expect(docker.commands.grep(/container run/).last).to match(
-      %r{\Adocker container run --rm --name rascal-app-job-run-\h{8} -a STDOUT -a STDERR -a STDIN --interactive --tty -w /repo -v .*/app:/repo -v rascal-app-job-builds:/builds -e CI=true .* -e FOO=bar --network deadbeef job-image:latest bash -c bundle check\nbash\n}
+      %r{\Adocker container run --rm --name rascal-app-job-run-\h{8} -a STDOUT -a STDERR -a STDIN --interactive --tty -w /repo -v .*/app:/repo -v rascal-app-job-builds:/builds -e CI=true .* -e FOO=bar --network deadbeef job-image:latest bash -c .*safe\.directory.*\nbundle check\nbash\n}
     )
   end
 

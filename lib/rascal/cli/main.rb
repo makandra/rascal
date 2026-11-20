@@ -54,6 +54,20 @@ module Rascal
         end
       end
 
+      desc 'status [ENVIRONMENT]', 'Show an environment as rascal sees it, and what of it is running'
+      long_desc <<~TEXT
+        Shows what rascal made of the CI config: the image, services, variables, before_shell and
+        after_shell, and any problems. Also shows what exists in Docker: whether images are
+        downloaded, the state of each service with the command to see its logs, the network,
+        volumes and running commands. Starts nothing. Without an environment, shows all of them.
+      TEXT
+      method_option :json, type: :boolean, desc: 'Print JSON, for scripts and agents'
+      def status(environment_name = nil)
+        handle_error do
+          Status.new(options, environment_name).run
+        end
+      end
+
       desc 'environments', 'List the jobs you can use as environments'
       def environments
         handle_error do

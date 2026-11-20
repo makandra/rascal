@@ -37,6 +37,8 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
 
 ### Working with environments
 
+- Add `rascal status`, which shows what rascal made of a job's config, and what of the environment
+  exists in Docker, like whether a service runs or how it exited. `--json` prints it for scripts.
 - Add the options `--env NAME=VALUE`, `--unset-env NAME` and `--ssh-agent` to `rascal run` and
   `rascal shell`, which change the container for a single command, like for updating dependencies.
   Options may also come after the environment's name.
@@ -48,6 +50,7 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
   in the container, so it can fetch private dependencies over SSH. It is off by default, since any
   code in the container can use the agent's keys while a command runs.
 - Give files that commands create in the project back to the host user. They used to belong to root.
+- Let Git in the container work with the project, which it used to refuse as belonging to another user.
 - `rascal run` passes stdin to the command when it comes from a file or a pipe.
 - When rascal gets a signal while running a command, it removes the command's container, which kept
   running before. `rascal clean` removes such containers left over from earlier versions or `kill -9`.

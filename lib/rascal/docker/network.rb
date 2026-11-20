@@ -3,6 +3,8 @@ module Rascal
     class Network
       include IOHelper
 
+      attr_reader :prefixed_name
+
       def initialize(name)
         @name = name
         @prefixed_name = "#{NAME_PREFIX}#{name}"

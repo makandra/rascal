@@ -8,6 +8,7 @@ module Rascal
     autoload :Main,         'rascal/cli/main'
     autoload :Run,          'rascal/cli/run'
     autoload :Shell,        'rascal/cli/shell'
+    autoload :Status,       'rascal/cli/status'
     autoload :Update,       'rascal/cli/update'
   end
 end

@@ -131,6 +131,21 @@ describe 'rascal run' do
     expect(docker.commands.grep(/container run/).last).to include("-a STDERR --entrypoint  -w /repo ")
   end
 
+  it 'lets Git in the container use the project, which belongs to another user than the container' do
+    gitlab_ci_config(<<~YAML)
+      job:
+        image: job-image:latest
+    YAML
+
+    run_rascal!('run', 'job', '--', 'git', 'status')
+
+    # Writes the container's own global config, since older Git ignores safe.directory from elsewhere.
+    expect(docker.commands.grep(/container run/).last).to include(
+      'bash -c if command -v git > /dev/null 2>&1 && ! git config --global --get-all safe.directory 2> /dev/null | grep -qxF /repo; ' \
+      "then git config --global --add safe.directory /repo 2> /dev/null; fi\ngit status\n"
+    )
+  end
+
   describe 'the script it runs in the container' do
 
     def container_script
@@ -151,7 +166,7 @@ describe 'rascal run' do
       YAML
       docker.image_exists('mysql:5.7', exposed_ports: ['3306/tcp', '33060/tcp', '53/udp'])
 
-      expect(container_script).to match(/\A__rascal_wait_for\(\) \{.*\}\n__rascal_wait_for db 30 3306 33060\nbundle check\nrake\n/)
+      expect(container_script).to match(/\A__rascal_wait_for\(\) \{.*\}\n__rascal_wait_for db 30 3306 33060\n.*safe\.directory.*\nbundle check\nrake\n/)
     end
 
     it 'waits for HEALTHCHECK_TCP_PORT instead, and as long as services_timeout says' do
@@ -369,7 +384,7 @@ describe 'rascal run' do
 
     run_rascal!('run', 'other-job', '-c', other_project, '--', 'ls', '-c', 'x')
 
-    expect(docker.commands.grep(/container run/).last).to match(/other-image:latest bash -c ls -c x\n/)
+    expect(docker.commands.grep(/container run/).last).to include("\nls -c x\n")
   end
 
   it 'runs a command without a leading -- as it is, even when it contains --' do
@@ -380,7 +395,7 @@ describe 'rascal run' do
 
     run_rascal!('run', 'job', 'git', 'checkout', '--', 'file')
 
-    expect(docker.commands.grep(/container run/).last).to match(/job-image:latest bash -c git checkout -- file\n/)
+    expect(docker.commands.grep(/container run/).last).to include("\ngit checkout -- file\n")
   end
 
   it 'complains about options after the environment name without --, instead of running them' do

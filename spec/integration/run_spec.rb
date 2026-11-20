@@ -1,3 +1,4 @@
+require 'json'
 # Runs the real rascal executable against a real Docker daemon.
 # Only covers key paths and what mocked tests cannot show. Details belong in unit specs.
 describe 'rascal run' do
@@ -210,7 +211,7 @@ describe 'rascal run' do
       expect([first.value.stdout, second.stdout]).to eq ["connected\n", "connected\n"]
     end
 
-    it 'points to the logs of a service that stopped' do
+    it 'points to the logs of a service that stopped, and shows how it stopped in `status`' do
       create_project(<<~YAML)
         .rascal:
           services_timeout: 2
@@ -226,6 +227,9 @@ describe 'rascal run' do
 
       expect(result.stderr).to include('rascal: Service redis does not accept connections on port 6379 after 2 seconds, continuing anyway.')
       expect(result.stderr).to include("Warning: Service redis is not running anymore. See why with `docker logs rascal-#{project_name}-job_redis`")
+      status = JSON.parse(rascal!('status', 'job', '--json').stdout)
+      expect(status['services'].first).to include('state' => 'exited', 'exit_code' => 1, 'image_present' => true)
+      expect(status['network']).to include('exists' => true)
     end
 
     it 'removes containers, networks and volumes with `clean --all --volumes`' do

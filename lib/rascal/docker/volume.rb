@@ -13,6 +13,10 @@ module Rascal
           "#{@prefixed_name}:#{@container_path}"
         end
 
+        def status
+          { 'path' => @container_path, 'volume' => @prefixed_name, 'exists' => exists? }
+        end
+
         def clean
           if exists?
             info "Removing volume #{@prefixed_name}"
@@ -44,6 +48,10 @@ module Rascal
 
         def to_param
           "#{@local_path}:#{@container_path}#{':ro' if @read_only}"
+        end
+
+        def status
+          { 'path' => @container_path, 'directory' => @local_path.to_s }
         end
 
         def clean

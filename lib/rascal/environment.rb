@@ -81,6 +81,29 @@ module Rascal
       @volumes.each(&:clean) if clean_volumes
     end
 
+    # What rascal made of the CI config, and what of the environment exists in Docker,
+    # for `rascal status`. Starts and downloads nothing.
+    def status
+      {
+        'name' => @name,
+        'image' => @container.image,
+        'image_present' => @container.image_present?,
+        'entrypoint' => @container.entrypoint,
+        'problems' => @problems,
+        'warnings' => @warnings,
+        'network' => { 'name' => @network.prefixed_name, 'exists' => @network.exists? },
+        'services' => @services.collect(&:status),
+        'volumes' => @volumes.collect(&:status),
+        'command_containers' => @container.run_names,
+        'working_dir' => @working_dir,
+        'variables' => @env_variables,
+        'before_shell' => @before_shell,
+        'after_shell' => @after_shell,
+        'ssh_agent' => @ssh_agent,
+        'services_timeout' => @services_timeout,
+      }
+    end
+
     def update(skip: [])
       raise_problems
       [
@@ -148,6 +171,7 @@ module Rascal
     def script(command, starting_services)
       [
         *wait_for(starting_services),
+        *trust_project_for_git,
         *@before_shell,
         command,
         '__rascal_status=$?',
@@ -155,6 +179,18 @@ module Rascal
         *fix_ownership,
         'exit $__rascal_status',
       ].join("\n")
+    end
+
+    # Git refuses a repository that belongs to another user, like the project does to the
+    # container's user ("detected dubious ownership"). The project is mounted on purpose, so trust
+    # it in the container's global Git config, which goes away with the container. Older Git, as
+    # in Ubuntu 22.04, ignores safe.directory from anywhere else.
+    def trust_project_for_git
+      return [] if @working_dir.nil?
+
+      dir = Shellwords.escape(@working_dir)
+      ["if command -v git > /dev/null 2>&1 && ! git config --global --get-all safe.directory 2> /dev/null | grep -qxF #{dir}; " \
+       "then git config --global --add safe.directory #{dir} 2> /dev/null; fi"]
     end
 
     def wait_for(services)

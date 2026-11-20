@@ -55,6 +55,21 @@ module Rascal
       @container.clean
     end
 
+    # For `rascal status`.
+    def status
+      {
+        'aliases' => @aliases,
+        'image' => @container.image,
+        'image_present' => @container.image_present?,
+        'command' => @command,
+        'variables' => @env_variables,
+        # Unknown until the image is downloaded.
+        'wait_ports' => (ports if @container.image_present? || @healthcheck_port),
+        **@container.status,
+        'logs' => "docker logs #{@container.prefixed_name}",
+      }
+    end
+
     def update(**args)
       @container.update(**args)
     end
