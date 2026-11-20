@@ -42,7 +42,7 @@ module Rascal
 
 
       map "shell" => "_shell"
-      desc 'shell ENVIRONMENT', 'Open an interactive bash in an environment'
+      desc 'shell JOB', "Open an interactive bash in a job's environment"
       long_desc <<~TEXT
         Opens bash in the environment of a CI job, like for a Rails console or a debugger.
         Needs a terminal. Without one, use rascal run.
@@ -54,7 +54,7 @@ module Rascal
         end
       end
 
-      desc 'status [ENVIRONMENT]', 'Show an environment as rascal sees it, and what of it is running'
+      desc 'status [JOB]', "Show a job's environment as rascal sees it, and what of it is running"
       long_desc <<~TEXT
         Shows what rascal made of the CI config: the image, services, variables, before_shell and
         after_shell, and any problems. Also shows what exists in Docker: whether images are
@@ -78,7 +78,7 @@ module Rascal
       # Thor::Actions already defines #run, hence the mapping.
       map 'run' => '_run'
       stop_on_unknown_option! :_run
-      desc 'run ENVIRONMENT -- COMMAND', 'Run a command in an environment'
+      desc 'run JOB -- COMMAND', "Run a command in a job's environment"
       long_desc <<~TEXT
         Runs a command in the environment of a CI job, without a terminal, and exits with its status.
         Everything after -- is passed on as arguments. For shell syntax, use bash -c:
@@ -97,26 +97,26 @@ module Rascal
         end
       end
 
-      desc 'clean ENVIRONMENT | --all', 'Remove an environment'
+      desc 'clean JOB | --all', "Remove a job's environment"
       long_desc <<~TEXT
         Stops and removes the environment's services with their data, like databases, its network
         and leftover command containers. Named volumes, like caches, stay unless you pass --volumes.
         Files in the project stay. The next command starts the services fresh.
       TEXT
       method_option :volumes, type: :boolean, desc: 'Also remove volumes, like caches'
-      method_option :all, type: :boolean, desc: 'Clean all environments'
+      method_option :all, type: :boolean, desc: 'Clean the environments of all jobs'
       def clean(environment_name = nil)
         handle_error do
           Clean.new(options, environment_name).run
         end
       end
 
-      desc 'update ENVIRONMENT | --all', "Pull an environment's latest images"
+      desc 'update JOB | --all', "Pull the latest images of a job's environment"
       long_desc <<~TEXT
         Pulls the latest images of the job and its services. Services that already run keep their
         old image until you run rascal clean.
       TEXT
-      method_option :all, type: :boolean, desc: 'Update all environments'
+      method_option :all, type: :boolean, desc: 'Update the environments of all jobs'
       def update(environment_name = nil)
         handle_error do
           Update.new(options, environment_name).run
@@ -151,7 +151,7 @@ module Rascal
         given = parser.parse(arguments.take(separator))
         parser.check_unknown!
         if parser.remaining.any?
-          raise Thor::Error, "Unexpected #{parser.remaining.join(' ')} before --. Usage: rascal run [OPTIONS] ENVIRONMENT -- COMMAND"
+          raise Thor::Error, "Unexpected #{parser.remaining.join(' ')} before --. Usage: rascal run [OPTIONS] JOB -- COMMAND"
         end
 
         merged = options.to_h

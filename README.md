@@ -558,9 +558,9 @@ With `--json`, it prints the same as JSON, for scripts and agents.
 
 Run rascal in the project's root directory, or pass `--config-file`.
 
-#### `Unknown environment ... Available: ...`
+#### `Unknown job ... Jobs: ...`
 
-Use one of the listed job names. Jobs starting with a dot are templates, not environments.
+Use one of the listed job names. Jobs starting with a dot are templates, which have no environment.
 
 #### `has no image`
 

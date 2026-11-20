@@ -57,7 +57,7 @@ describe 'rascal clean' do
     result = run_rascal('clean', 'job', '--all')
 
     expect(result.exit_code).not_to eq 0
-    expect(result.stderr).to include('Cannot give --all and an environment name!')
+    expect(result.stderr).to include('Give either a job or --all.')
   end
 
 end

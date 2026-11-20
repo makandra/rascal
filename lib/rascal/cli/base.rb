@@ -41,9 +41,9 @@ module Rascal
         jobs.environment(environment_name) or begin
           available_environments = jobs.names.join(', ')
           if environment_name
-            fail_with_error("Unknown environment #{environment_name}. Available: #{available_environments}.")
+            fail_with_error("Unknown job #{environment_name}. Jobs: #{available_environments}.")
           else
-            fail_with_error("Missing environment. Available: #{available_environments}.")
+            fail_with_error("Missing job. Jobs: #{available_environments}.")
           end
         end
       end
@@ -52,7 +52,7 @@ module Rascal
       def name_or_all(environment_name)
         return environment_name unless @options[:all]
 
-        fail_with_error('Cannot give --all and an environment name!') if environment_name
+        fail_with_error('Give either a job or --all.') if environment_name
         :all
       end
 
