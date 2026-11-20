@@ -131,33 +131,16 @@ describe 'rascal run' do
     expect(docker.commands.grep(/container run/).last).to include("-a STDERR --entrypoint  -w /repo ")
   end
 
-  it 'lets Git in the container use the project, which belongs to another user than the container' do
-    gitlab_ci_config(<<~YAML)
-      job:
-        image: job-image:latest
-    YAML
-
-    run_rascal!('run', 'job', '--', 'git', 'status')
-
-    # Writes the container's own global config, since older Git ignores safe.directory from elsewhere.
-    expect(docker.commands.grep(/container run/).last).to include(
-      'bash -c if command -v git > /dev/null 2>&1 && ! git config --global --get-all safe.directory 2> /dev/null | grep -qxF /repo; ' \
-      "then git config --global --add safe.directory /repo 2> /dev/null; fi\ngit status\n"
-    )
-  end
-
-  describe 'the script it runs in the container' do
+  # The script itself is covered by spec/rascal/command_script_spec.rb.
+  describe 'waiting for services' do
 
     def container_script
       run_rascal!('run', 'job', '--', 'rake')
       docker.history.reverse.detect { |command| command.include?('run') && command.include?('container') }.reject { |part| part.is_a?(Hash) }.last
     end
 
-    it 'first waits until services it started accept connections on one of their exposed TCP ports' do
+    it 'waits until services it started accept connections on one of their exposed TCP ports' do
       gitlab_ci_config(<<~YAML)
-        .rascal:
-          before_shell:
-            - bundle check
         job:
           image: job-image:latest
           services:
@@ -166,7 +149,7 @@ describe 'rascal run' do
       YAML
       docker.image_exists('mysql:5.7', exposed_ports: ['3306/tcp', '33060/tcp', '53/udp'])
 
-      expect(container_script).to match(/\A__rascal_wait_for\(\) \{.*\}\n__rascal_wait_for db 30 3306 33060\n.*safe\.directory.*\nbundle check\nrake\n/)
+      expect(container_script).to include("\n__rascal_wait_for db 30 3306 33060\n")
     end
 
     it 'waits for HEALTHCHECK_TCP_PORT instead, and as long as services_timeout says' do
@@ -212,18 +195,6 @@ describe 'rascal run' do
       docker.container_exists('rascal-app-job_db', running: true)
 
       expect(container_script).not_to include('__rascal_wait_for')
-    end
-
-    it 'gives files the container created in the project back to the host user' do
-      skip 'only applies when not running as root' if Process.uid == 0
-      gitlab_ci_config(<<~YAML)
-        job:
-          image: job-image:latest
-      YAML
-
-      expect(container_script).to end_with(
-        "\n[ \"$(stat -c %u /repo 2>/dev/null)\" = #{Process.uid} ] && find /repo -xdev -user 0 -exec chown -h #{Process.uid}:#{Process.gid} {} + 2>/dev/null\nexit $__rascal_status"
-      )
     end
 
   end

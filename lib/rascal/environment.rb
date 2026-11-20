@@ -14,19 +14,6 @@ module Rascal
     # How long to wait by default for a service to accept connections before running the command anyway.
     DEFAULT_SERVICES_TIMEOUT = 30
 
-    # A bash function that waits until a host accepts TCP connections on one of the given ports:
-    # __rascal_wait_for HOST TIMEOUT_SECONDS PORT...
-    WAIT_FOR_FUNCTION = <<~BASH.gsub(/\n\s*/, ' ').strip
-      __rascal_wait_for() {
-        local host=$1 timeout=$2 deadline=$((SECONDS + $2)) port; shift 2;
-        while ((SECONDS < deadline)); do
-          for port in "$@"; do (exec 3<>"/dev/tcp/$host/$port") 2>/dev/null && return; done;
-          sleep 0.1;
-        done;
-        echo "rascal: Service $host does not accept connections on port $* after $timeout seconds, continuing anyway. If it listens on another port, set HEALTHCHECK_TCP_PORT in its variables. If it needs more time, set services_timeout in the .rascal block." >&2;
-      }
-    BASH
-
     attr_reader :name, :network, :container, :env_variables, :services, :volumes, :working_dir, :before_shell,
       :problems, :warnings, :services_timeout
 
@@ -159,57 +146,23 @@ module Rascal
       )
     end
 
-    # The bash script that runs the given command in the container:
-    #
-    # 1. Waits until services that may not be ready yet accept connections, like a GitLab runner does.
-    # 2. Runs before_shell, the command and after_shell, and exits with the command's status.
-    #    Each on its own line, so entries may end in `&` or a comment.
-    #    Without saving it, an `after_shell` entry would determine the exit status, and
-    #    failures would go unnoticed.
-    # 3. Gives files the container created in the project back to the host user, since
-    #    the container usually runs as root.
+    # `starting_services` are those that may not accept connections yet.
     def script(command, starting_services)
-      [
-        *wait_for(starting_services),
-        *trust_project_for_git,
-        *@before_shell,
-        command,
-        '__rascal_status=$?',
-        *@after_shell,
-        *fix_ownership,
-        'exit $__rascal_status',
-      ].join("\n")
+      CommandScript.new(command,
+        working_dir: @working_dir,
+        before_shell: @before_shell,
+        after_shell: @after_shell,
+        waits: starting_services.collect { |service| [service.aliases.first, service.ports] },
+        wait_timeout: @services_timeout,
+        owner: project_owner,
+      ).to_s
     end
 
-    # Git refuses a repository that belongs to another user, like the project does to the
-    # container's user ("detected dubious ownership"). The project is mounted on purpose, so trust
-    # it in the container's global Git config, which goes away with the container. Older Git, as
-    # in Ubuntu 22.04, ignores safe.directory from anywhere else.
-    def trust_project_for_git
-      return [] if @working_dir.nil?
-
-      dir = Shellwords.escape(@working_dir)
-      ["if command -v git > /dev/null 2>&1 && ! git config --global --get-all safe.directory 2> /dev/null | grep -qxF #{dir}; " \
-       "then git config --global --add safe.directory #{dir} 2> /dev/null; fi"]
-    end
-
-    def wait_for(services)
-      waits = services.filter_map do |service|
-        ports = service.ports
-        "__rascal_wait_for #{Shellwords.escape(service.aliases.first)} #{@services_timeout.to_i} #{ports.join(' ')}" if ports.any?
-      end
-      waits.any? ? [WAIT_FOR_FUNCTION, *waits] : []
-    end
-
-    # Only when the project appears in the container as owned by the host user. With rootless
-    # Docker, the host user is root in the container, and with Docker Desktop for Mac,
-    # ownership is mapped already.
-    def fix_ownership
-      uid = Process.uid
-      return [] if uid == 0 || @working_dir.nil? || RUBY_PLATFORM.include?('darwin')
-
-      dir = Shellwords.escape(@working_dir)
-      ["[ \"$(stat -c %u #{dir} 2>/dev/null)\" = #{uid} ] && find #{dir} -xdev -user 0 -exec chown -h #{uid}:#{Process.gid} {} + 2>/dev/null"]
+    # The user that should own files the container creates in the project: the host user, unless
+    # the project already appears in the container as theirs. With rootless Docker, the host user
+    # is root in the container, and Docker Desktop for Mac maps ownership itself.
+    def project_owner
+      [Process.uid, Process.gid] unless Process.uid == 0 || RUBY_PLATFORM.include?('darwin')
     end
 
     # Volumes and variables that give the container access to the host's SSH agent.
