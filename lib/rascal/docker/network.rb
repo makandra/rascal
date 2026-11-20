@@ -32,6 +32,16 @@ module Rascal
         raise unless e.message.include?('is not connected')
       end
 
+      def connect(container_id, aliases:)
+        Docker.interface.run(
+          'network',
+          'connect',
+          *aliases.flat_map { |network_alias| ['--alias', network_alias] },
+          id,
+          container_id,
+        )
+      end
+
       def exists?
         !!id
       end

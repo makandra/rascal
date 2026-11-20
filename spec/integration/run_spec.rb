@@ -193,6 +193,19 @@ describe 'rascal run' do
       expect(result.stdout).to include("reply: hello\n")
     end
 
+    it 'reaches a service by its alias after its container was stopped, or lost its network' do
+      rascal!('run', 'job', '--', 'bash', '-c', redis_command('SET greeting hello'))
+      service = "rascal-#{project_name}-job_redis"
+
+      docker('container', 'stop', service)
+      after_stop = rascal!('run', 'job', '--', 'bash', '-c', redis_command('PING'))
+      docker('network', 'disconnect', "rascal-#{project_name}-job", service)
+      after_disconnect = rascal!('run', 'job', '--', 'bash', '-c', redis_command('PING'))
+
+      expect(after_stop.stdout).to include("reply: +PONG\n")
+      expect(after_disconnect.stdout).to include("reply: +PONG\n")
+    end
+
     it 'lets a second command wait for services that the first one is still starting' do
       create_project(<<~YAML)
         job:

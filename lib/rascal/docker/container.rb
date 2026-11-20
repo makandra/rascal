@@ -46,6 +46,10 @@ module Rascal
         !!id
       end
 
+      def attached_to?(network)
+        attached_network_ids.include?(network.id)
+      end
+
       # Docker resolves a container's network by the id it recorded when the
       # container was created, and refuses to start it once that network is
       # gone:

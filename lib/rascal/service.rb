@@ -31,12 +31,12 @@ module Rascal
     # Returns whether it started the service.
     def start_if_stopped(network:)
       if @container.running?
+        # Like after an earlier rascal disconnected it, see #reconnect.
+        reconnect(network) unless @container.attached_to?(network)
         false
       else
         @container.remove_if_network_missing(network)
-        if (container_id = @container.id)
-          network.disconnect(container_id)
-        end
+        reconnect(network) if @container.exists?
         @container.start(network: network, network_aliases: @aliases, volumes: @volumes, env: @env_variables, command: @command)
         true
       end
@@ -44,6 +44,15 @@ module Rascal
 
     def running?
       @container.running?
+    end
+
+    # Connects the service's container to the network again, under its aliases. Disconnecting
+    # first clears an endpoint Docker may have kept ("endpoint ... already exists in network").
+    # Docker forgets the network of a stopped container that is disconnected, so without
+    # connecting again, the service would start without a network and be unreachable.
+    def reconnect(network)
+      network.disconnect(@container.id)
+      network.connect(@container.id, aliases: @aliases)
     end
 
     # Whether the service is running, but started so recently that it may not be ready yet.

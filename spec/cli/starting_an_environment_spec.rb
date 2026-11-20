@@ -53,12 +53,18 @@ describe 'starting an environment' do
       YAML
     end
 
-    it 'disconnects it from the network before starting it again' do
+    it 'connects it to the network again under its aliases before starting it, since Docker forgets the network of a disconnected container' do
       docker.container_exists('rascal-app-job_service')
+      id = docker.container_id('rascal-app-job_service')
 
       run_rascal!('run', 'job', '--', 'true')
 
-      expect(docker.commands).to include("docker network disconnect deadbeef #{docker.container_id('rascal-app-job_service')}")
+      expect(docker.commands).to include(
+        "docker network disconnect deadbeef #{id}",
+        "docker network connect --alias service deadbeef #{id}",
+        "docker container start #{id}",
+      )
+      expect(docker.commands.index("docker network connect --alias service deadbeef #{id}")).to be < docker.commands.index("docker container start #{id}")
       expect(docker.commands).not_to include(match(/container create/))
     end
 
@@ -81,8 +87,18 @@ describe 'starting an environment' do
       expect(docker.commands).not_to include(match(/container (rm|create)/))
     end
 
-    it 'leaves it alone when it is running' do
+    it 'connects it again when it runs without the network, like after an older rascal restarted it' do
       docker.container_exists('rascal-app-job_service', running: true)
+      id = docker.container_id('rascal-app-job_service')
+
+      run_rascal!('run', 'job', '--', 'true')
+
+      expect(docker.commands).to include("docker network connect --alias service deadbeef #{id}")
+      expect(docker.commands).not_to include(match(/container (start|create|rm)/))
+    end
+
+    it 'leaves it alone when it is running on the network' do
+      docker.container_exists('rascal-app-job_service', running: true, network_id: DockerMockInterface::NETWORK_ID)
 
       result = run_rascal!('run', 'job', '--', 'true')
 
