@@ -56,7 +56,7 @@ when something is missing.
 
 Install rascal with a Ruby of your own, not into the project's bundle. rascal needs neither the
 project's Ruby nor its gems, so one installation works for all projects, old and new. It needs
-Ruby 3.3 or newer.
+Ruby 3.0 or newer.
 
 Ruby version managers like mise or rbenv switch to the project's Ruby inside a project directory
 (from `.ruby-version`), and that Ruby usually does not have rascal. So pick one Ruby for rascal, and

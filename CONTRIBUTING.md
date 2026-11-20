@@ -6,7 +6,8 @@ This guide is for people and AI agents who change rascal. For using rascal, see 
 
 ## Setup
 
-You need Ruby 3.3 or newer and a running Docker daemon. Install the dependencies with
+You need Ruby 3.0 or newer and a running Docker daemon. We develop with the Ruby from
+`.ruby-version`, and CI also tests the oldest supported Ruby. Install the dependencies with
 `bundle install`.
 
 To try your working copy on a project, run its executable from the project directory, with the Ruby
