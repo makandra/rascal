@@ -1,5 +1,5 @@
 module Rascal
-  module EnvironmentsDefinition
+  module Gitlab
     # Resolves CI variables the way a GitLab job sees them:
     #
     # - Definitions come in layers. Later layers override earlier ones.
@@ -17,11 +17,17 @@ module Rascal
     # GitLab expands in two steps: the GitLab server expands references to defined variables
     # (see Gitlab::Ci::Variables::Collection#sort_and_expand_all), then the runner expands
     # the rest and turns `$$` into `$`. This class does both in one step.
-    class GitlabVariables
+    class Variables
       NAME = /[a-zA-Z_][a-zA-Z0-9_]*/
       REFERENCE = /\$\$|%%|\$(?<name>#{NAME})|\$\{(?<name>#{NAME})\}|%(?<percent_name>#{NAME})%/
 
       Definition = Struct.new(:value, :expand)
+
+      # Variable definitions as GitLab reads them, where null means an empty string. (In
+      # rascal's own settings, null removes a variable.)
+      def self.from_gitlab(definitions)
+        definitions.transform_values { |value| value.nil? ? '' : value }
+      end
 
       # Takes layers of variable definitions as hashes, from the lowest to the highest priority.
       def initialize(*layers)

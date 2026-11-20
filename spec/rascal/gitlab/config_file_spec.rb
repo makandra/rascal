@@ -1,8 +1,8 @@
 require 'tmpdir'
 
 module Rascal
-  module EnvironmentsDefinition
-    describe GitlabFile do
+  module Gitlab
+    describe ConfigFile do
 
       around do |example|
         Dir.mktmpdir do |dir|

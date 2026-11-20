@@ -1,6 +1,6 @@
 module Rascal
-  module EnvironmentsDefinition
-    describe GitlabVariables do
+  module Gitlab
+    describe Variables do
 
       describe '#to_h' do
 

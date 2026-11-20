@@ -39,7 +39,7 @@ module Rascal
       def find_environment(environment_name)
         definition = environment_definition
         definition.environment(environment_name) or begin
-          available_environments = definition.available_environment_names.join(', ')
+          available_environments = definition.names.join(', ')
           if environment_name
             fail_with_error("Unknown environment #{environment_name}. Available: #{available_environments}.")
           else
@@ -61,7 +61,7 @@ module Rascal
 
         if name == :all
           definition = environment_definition
-          definition.available_environment_names.each do |environment_name|
+          definition.names.each do |environment_name|
             yield definition.environment(environment_name)
           end
         else
@@ -70,7 +70,7 @@ module Rascal
       end
 
       def environment_definition
-        EnvironmentsDefinition.detect(config_location) or
+        Gitlab::Jobs.find(config_location) or
           fail_with_error("Could not find a .gitlab-ci.yml in #{config_location}. Run rascal in your project's root directory, " \
                           "or point to the file with --config-file.")
       end
