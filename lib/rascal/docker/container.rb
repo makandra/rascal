@@ -202,10 +202,19 @@ module Rascal
           stdout: stderr,
         )
       rescue Interface::Error => e
-        raise unless e.message.match?(/unauthorized|authentication required|denied|no basic auth credentials/i)
-
-        registry = @image.include?('/') && @image.split('/').first.match?(/[.:]|\Alocalhost\z/) ? @image.split('/').first : 'docker.io'
-        raise Error, "#{e.message.strip}\nDocker may need credentials for #{registry}. Log in with `docker login #{registry}`, then try again."
+        case e.message
+        when /docker daemon|docker\.sock/i
+          # Like no permission to use Docker. Docker's message says enough.
+          raise
+        when /unauthorized|authentication required|denied|no basic auth credentials/i
+          registry = @image.include?('/') && @image.split('/').first.match?(/[.:]|\Alocalhost\z/) ? @image.split('/').first : 'docker.io'
+          raise Error, "#{e.message.strip}\nDocker may need credentials for #{registry}. Log in with `docker login #{registry}`, then try again."
+        when /manifest unknown|name unknown|failed to resolve reference.*: not found/i
+          raise Error, "#{e.message.strip}\nDocker found no image #{@image} in its registry. Its tag may have been deleted, or the name is wrong. " \
+                       'Set another image in the .rascal block (`jobs: <job>: image:` or `services:`), or build the image yourself under this name.'
+        else
+          raise
+        end
       end
 
       # A fresh `docker container inspect`, or nil if there is no container.

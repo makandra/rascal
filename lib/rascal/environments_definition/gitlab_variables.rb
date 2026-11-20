@@ -11,6 +11,8 @@ module Rascal
     # - `$$` stands for a literal `$`.
     # - A variable defined as `{ value: ..., expand: false }` is used as is.
     # - Variables that reference each other in a circle are an error.
+    # - A variable defined as nil is removed, as if no lower layer defined it. This is
+    #   rascal's own extension, for removing predefined variables like `CI`.
     #
     # GitLab expands in two steps: the GitLab server expands references to defined variables
     # (see Gitlab::Ci::Variables::Collection#sort_and_expand_all), then the runner expands
@@ -38,7 +40,7 @@ module Rascal
 
       # All variables, with their references expanded.
       def to_h
-        @definitions.keys.to_h { |name| [name, resolve(name)] }
+        defined_names.to_h { |name| [name, resolve(name)] }
       end
 
       # The variables whose values directly reference undefined variables, as a hash
@@ -46,7 +48,7 @@ module Rascal
       # references its own name without a lower definition does not count, since
       # appending to an unset variable is common.
       def undefined_references
-        @definitions.keys.each_with_object({}) do |name, result|
+        defined_names.each_with_object({}) do |name, result|
           layer = @definitions[name].size - 1
           definition = @definitions[name][layer]
           next unless definition.expand
@@ -77,8 +79,14 @@ module Rascal
 
       private
 
+      def defined_names
+        @definitions.keys.reject { |name| @definitions[name].last.value.nil? }
+      end
+
       def normalize(value)
-        if value.is_a?(Hash)
+        if value.nil?
+          Definition.new(nil, true)
+        elsif value.is_a?(Hash)
           Definition.new(value['value'].to_s, value.fetch('expand', true))
         else
           Definition.new(value.to_s, true)
@@ -114,7 +122,8 @@ module Rascal
             if layer
               direct_only ? resolve(name, layer, visiting) : resolve(name, layer, visiting, &on_undefined)
             elsif match[:name]
-              on_undefined&.call(name) unless current&.first == name
+              # Not for variables that are only defined lower or removed on purpose.
+              on_undefined&.call(name) unless @definitions.key?(name)
               ''
             else
               match[0]
@@ -123,16 +132,17 @@ module Rascal
         end
       end
 
-      # The layer a reference to `name` points to, or nil if it is undefined.
+      # The layer a reference to `name` points to, or nil if it is undefined or removed.
       def referenced_layer(name, current)
         return unless @definitions.key?(name)
 
-        if current && current.first == name
+        layer = if current && current.first == name
           # A variable referencing itself means its definition in a lower layer.
           current.last.positive? ? current.last - 1 : nil
         else
           @definitions[name].size - 1
         end
+        layer unless layer.nil? || @definitions[name][layer].value.nil?
       end
     end
   end

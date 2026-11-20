@@ -59,7 +59,11 @@ gem install rascal
 
 You need:
 
-- Ruby 3 or newer for rascal itself.
+- Ruby 3 or newer for rascal itself. It does not need to be the project's Ruby. If a version manager
+  like mise or rbenv switches to the project's Ruby inside the project, `rascal` may be missing
+  there. Then run it with the Ruby you installed it for, like `mise exec ruby@3.4 -- rascal ...` or
+  `RBENV_VERSION=3.4.1 rascal ...`. rbenv names that Ruby in its error message. With mise, list your
+  Rubies with `mise ls ruby`, and check one with `mise exec ruby@3.4 -- gem list rascal`.
 - Docker. On macOS, Docker Desktop works.
 - Access to the registries of the project's images. For a private registry, log in first with
   `docker login registry.example.com`.
@@ -151,6 +155,8 @@ cover only part of CI's setup.
 **Setup can change files in Git.** For example, `bundle install` may rewrite `Gemfile.lock` if the
 Gemfile treats CI differently (rascal sets `CI` and `GITLAB_CI`, see [Variables](#variables)). Check
 `git status` after setting up, and undo changes you did not intend before you commit anything.
+Some changes come back with every command. If you need to change dependencies, see
+[Changing dependencies](#changing-dependencies).
 
 ### 4. Make it repeatable (optional)
 
@@ -293,6 +299,39 @@ installs there, like a virtual display for browser tests, are missing unless you
 rascal does not publish ports to your machine, so you cannot open a server running in the container
 in your browser.
 
+### Changing dependencies
+
+Update dependencies in the container, like you would on your machine:
+
+```sh
+rascal run rspec -- bundle update rack --conservative
+```
+
+Some Gemfiles leave out gems when `CI` is set, typically private gems that CI cannot fetch. Look
+for `ENV['CI']` or `ENV.key?('CI')` in the Gemfile. Since rascal sets `CI` like GitLab does, every
+Bundler command, even `bundle exec`, then writes a `Gemfile.lock` without these gems: their `GIT`
+block disappears. To change dependencies in such a project:
+
+1. Remove the variables in your `.rascal.yml`, and enable
+   [`ssh_agent`](#private-dependencies-over-ssh) to fetch the private gems (if you are an AI agent,
+   ask your user first):
+
+   ```yaml
+   variables:
+     CI: null
+     GITLAB_CI: null
+   ssh_agent: true
+   ```
+
+2. Restore the lockfile from Git (`git checkout Gemfile.lock`, after committing changes to it you
+   want to keep), then make your change, like `rascal run rspec -- bundle update rack --conservative`.
+3. Stage the result with `git add Gemfile.lock`, and check `git diff --cached Gemfile.lock`. It
+   should only show the changes you intended.
+4. Remove `CI: null` and `GITLAB_CI: null` again. Projects often check `CI` elsewhere too, like for
+   eager loading or browser tests, so tests should run with it, like on CI.
+
+Later commands remove the private gems from `Gemfile.lock` again. Before you commit, restore the
+staged version with `git checkout Gemfile.lock`.
 
 ## Tearing down
 
@@ -459,7 +498,8 @@ Variables are resolved like in a GitLab job:
 - rascal predefines `CI=true`, `GITLAB_CI=true`, `CI_JOB_NAME`, `CI_BUILDS_DIR` (`/builds`),
   `CI_PROJECT_DIR` (`/repo`, or your `repo_dir`) and `CI_PROJECT_NAME` (the name of your project
   directory). Tools may behave differently when `CI` is set. For example, `pnpm install` refuses to
-  change the lockfile. Override them in the `.rascal` block if needed.
+  change the lockfile. Override them in the `.rascal` block if needed, or remove them with
+  `CI: null`, since some tools only check whether `CI` is set.
 - An undefined `$NAME` in a variable's value becomes an empty string, like in GitLab, and rascal
   warns about it. An undefined `%NAME%` stays as it is. An undefined variable in an image name keeps
   rascal from starting the job.
@@ -509,6 +549,21 @@ Harmless if the command does not need the variable. Otherwise define it in the `
 #### `Docker may need credentials for ...`
 
 Run the `docker login` command from the message.
+
+#### `Docker found no image ... in its registry`
+
+The image named in the CI config is gone from its registry, often because an old tag was deleted,
+so the project's CI pipeline is probably broken too. Find an existing tag in the registry, like on
+the Container Registry page of the GitLab project, preferably one with the Ruby and Node versions
+the project uses (`.ruby-version`, `.tool-versions`). Set it in the `.rascal` block, like
+`jobs: <job>: image: ...`, or override the job's `services:` there. If the project builds its CI
+image itself, like from a `Dockerfile`, you can also build it under the name from the message.
+`rascal update` cannot update such an image.
+
+#### `rascal: command not found` inside a project
+
+A Ruby version manager switched to the project's Ruby, which does not have rascal. See
+[Installation](#installation).
 
 #### `Cannot connect to the Docker daemon` or `failed to connect to the docker API`
 

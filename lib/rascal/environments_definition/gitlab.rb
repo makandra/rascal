@@ -238,16 +238,21 @@ module Rascal
       # GitLab merges global and job variables by name before expanding them (see
       # Gitlab::Ci::Variables::Helpers.merge_variables), so they form one layer.
       # The .rascal block adds its own layers on top, so it can extend a job's
-      # variables, like `RUBYOPT: $RUBYOPT -W:deprecated`.
+      # variables, like `RUBYOPT: $RUBYOPT -W:deprecated`, or remove one with `CI: null`.
+      # In GitLab's own variables, null means an empty string.
       def variable_layers(job_config, rascal_job_config, resolve)
         global_variables = hash_or_empty(resolve.call(@info['variables']))
         global_variables = global_variables.slice(*inherited_keys(job_config, 'variables', global_variables.keys))
         default_variables = hash_or_empty(resolve.call(hash_or_empty(@info['default'])['variables'])) # not supported by GitLab, kept for compatibility
         [
-          global_variables.merge(default_variables).merge(hash_or_empty(resolve.call(job_config['variables']))),
+          empty_for_null(global_variables.merge(default_variables).merge(hash_or_empty(resolve.call(job_config['variables'])))),
           hash_or_empty(resolve.call(@rascal_config['variables'])),
           hash_or_empty(resolve.call(rascal_job_config['variables'])),
         ]
+      end
+
+      def empty_for_null(variables)
+        variables.transform_values { |value| value.nil? ? '' : value }
       end
 
       def build_environment(job)
@@ -395,7 +400,7 @@ module Rascal
         Array(services).collect do |service_config|
           # GitLab also allows services as a plain image name.
           service_config = { 'name' => service_config.to_s } unless service_config.is_a?(Hash)
-          own_variables = hash_or_empty(service_config['variables'])
+          own_variables = empty_for_null(hash_or_empty(service_config['variables']))
           service_variables = variables.merge(own_variables)
           raw_image = service_config['name'].to_s
           image = if raw_image.empty?

@@ -14,7 +14,8 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
   and services without an alias, which get the host names GitLab derives from their image.
 - Expand variables in variables, image names and service names, like GitLab does
   (`$NAME`, `${NAME}`, `%NAME%`, `$$`). Global `variables:` apply to every job.
-  In the `.rascal` block, a variable can extend the job's value, like `RUBYOPT: $RUBYOPT -W:deprecated`.
+  In the `.rascal` block, a variable can extend the job's value, like `RUBYOPT: $RUBYOPT -W:deprecated`,
+  or remove a variable, like `CI: null`.
 - Warn about variables that reference undefined variables, like ones set in the project's CI/CD settings.
 - Predefine the variables `CI`, `GITLAB_CI`, `CI_JOB_NAME`, `CI_PROJECT_NAME`, `CI_PROJECT_DIR` and
   `CI_BUILDS_DIR`. **This may change how your app and tools behave in a rascal environment**, if they
@@ -32,8 +33,8 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
   code in the container can use the agent's keys while a command runs.
 - Read settings for rascal from a `.rascal.yml` next to `.gitlab-ci.yml`, which extends the `.rascal`
   block. Use it for settings that should not be part of the project's CI config.
-- Suggest `docker login` when an image cannot be pulled for lack of credentials, and explain where
-  rascal looked for `.gitlab-ci.yml`.
+- Suggest `docker login` when an image cannot be pulled for lack of credentials, explain what to do
+  when an image does not exist in its registry, and explain where rascal looked for `.gitlab-ci.yml`.
 - When rascal gets a signal while running a command, it removes the command's container, which kept
   running before. `rascal clean` removes such containers left over from earlier versions or `kill -9`.
 - Point to the logs of services that stopped, like when their settings are wrong.

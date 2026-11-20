@@ -88,6 +88,19 @@ module Rascal
           expect(variables.to_h).to include('B' => 'a $1 ${2}')
         end
 
+        it 'removes a variable defined as nil, so references to it are undefined' do
+          variables = described_class.new({ 'CI' => 'true', 'A' => 'a' }, { 'CI' => nil, 'B' => '[$CI]' }, { 'A' => '$A $CI' })
+
+          expect(variables.to_h).to eq('A' => 'a ', 'B' => '[]')
+          expect(variables.undefined_references).to eq({})
+        end
+
+        it 'lets a higher layer define a removed variable again' do
+          variables = described_class.new({ 'CI' => 'true' }, { 'CI' => nil }, { 'CI' => 'yes ${CI}' })
+
+          expect(variables.to_h).to eq('CI' => 'yes ')
+        end
+
       end
 
       describe '#expand' do

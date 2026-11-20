@@ -56,6 +56,47 @@ describe 'rascal run' do
     expect(result.stderr).to include('Log in with `docker login registry.example.com`, then try again.')
   end
 
+  it 'explains when the image does not exist' do
+    gitlab_ci_config(<<~YAML)
+      job:
+        image: registry.example.com/group/app:1.0
+    YAML
+    docker.pull_fails('registry.example.com/group/app:1.0', 'Error response from daemon: manifest for registry.example.com/group/app:1.0 not found: manifest unknown: manifest unknown')
+
+    result = run_rascal('run', 'job', '--', 'true')
+
+    expect(result.exit_code).not_to eq 0
+    expect(result.stderr).to include('Docker found no image registry.example.com/group/app:1.0 in its registry.')
+  end
+
+  it 'passes on other errors from pulling an image unchanged' do
+    gitlab_ci_config(<<~YAML)
+      job:
+        image: registry.example.com/group/app:1.0
+    YAML
+    docker.pull_fails('registry.example.com/group/app:1.0', 'permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock')
+
+    result = run_rascal('run', 'job', '--', 'true')
+
+    expect(result.exit_code).not_to eq 0
+    expect(result.stderr).to include('permission denied while trying to connect to the Docker daemon socket')
+    expect(result.stderr).not_to include('docker login')
+  end
+
+  it 'does not mistake other errors containing "not found" for a missing image' do
+    gitlab_ci_config(<<~YAML)
+      job:
+        image: registry.example.com/group/app:1.0
+    YAML
+    docker.pull_fails('registry.example.com/group/app:1.0', 'error getting credentials - err: exec: "docker-credential-desktop": executable file not found in $PATH')
+
+    result = run_rascal('run', 'job', '--', 'true')
+
+    expect(result.exit_code).not_to eq 0
+    expect(result.stderr).to include('docker-credential-desktop')
+    expect(result.stderr).not_to include('Docker found no image')
+  end
+
   it 'reports what it does on stderr, and keeps stdout for the command' do
     gitlab_ci_config(<<~YAML)
       job:

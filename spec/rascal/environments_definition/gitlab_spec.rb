@@ -115,12 +115,14 @@ module Rascal
                 variables:
                   FOO: overridden foo
                   BAZ: baz
+                  EMPTY:
           YAML
 
           expect(environment.services.first.env_variables).to include(
             'FOO' => 'overridden foo',
             'BAR' => 'bar',
             'BAZ' => 'baz',
+            'EMPTY' => '',
           )
         end
 
@@ -833,6 +835,19 @@ module Rascal
             YAML
 
             expect(environment.env_variables).to include('CI_PROJECT_DIR' => '/my-repo')
+          end
+
+          it 'removes variables set to null in the .rascal block, like CI for Gemfiles that check ENV.key?' do
+            environment = from_config(<<~YAML, 'job')
+              .rascal:
+                variables:
+                  CI: null
+                  GITLAB_CI: ~
+              job:
+                image: job-image:latest
+            YAML
+
+            expect(environment.env_variables.keys).not_to include('CI', 'GITLAB_CI')
           end
 
           it 'allows to override predefined variables' do
