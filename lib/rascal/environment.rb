@@ -14,7 +14,7 @@ module Rascal
     # How long to wait by default for a service to accept connections before running the command anyway.
     DEFAULT_SERVICES_TIMEOUT = 30
 
-    attr_reader :name, :network, :container, :env_variables, :services, :volumes, :working_dir, :before_shell,
+    attr_reader :name, :network, :image, :command_containers, :env_variables, :services, :volumes, :working_dir, :before_shell,
       :problems, :warnings, :services_timeout
 
     # `problems` prevent the environment from starting, but not from being cleaned.
@@ -25,7 +25,9 @@ module Rascal
     def initialize(full_name, name:, image:, entrypoint: nil, env_variables: {}, services: [], volumes: [], before_shell: [], after_shell: [], working_dir: nil, problems: [], warnings: [], ssh_agent: false, services_timeout: DEFAULT_SERVICES_TIMEOUT)
       @name = name
       @network = Docker::Network.new(full_name)
-      @container = Docker::Container.new(full_name, image, entrypoint: entrypoint)
+      @docker_name = full_name
+      @image = Docker::Image.new(image)
+      @command_containers = Docker::CommandContainers.new(full_name, @image, entrypoint: entrypoint)
       @env_variables = env_variables
       @services = services
       @volumes = volumes
@@ -62,7 +64,7 @@ module Rascal
     end
 
     def clean(clean_volumes: false)
-      @container.clean_runs
+      @command_containers.clean
       @services.each(&:clean)
       @network.clean
       @volumes.each(&:clean) if clean_volumes
@@ -73,15 +75,15 @@ module Rascal
     def status
       {
         'name' => @name,
-        'image' => @container.image,
-        'image_present' => @container.image_present?,
-        'entrypoint' => @container.entrypoint,
+        'image' => @image.name,
+        'image_present' => @image.present?,
+        'entrypoint' => @command_containers.entrypoint,
         'problems' => @problems,
         'warnings' => @warnings,
         'network' => { 'name' => @network.prefixed_name, 'exists' => @network.exists? },
         'services' => @services.collect(&:status),
         'volumes' => @volumes.collect(&:status),
-        'command_containers' => @container.run_names,
+        'command_containers' => @command_containers.names,
         'working_dir' => @working_dir,
         'variables' => @env_variables,
         'before_shell' => @before_shell,
@@ -95,7 +97,7 @@ module Rascal
       raise_problems
       [
         *@services.collect { |s| s.update(skip: skip) },
-        *@container.update(skip: skip),
+        *@image.update(skip: skip),
       ]
     end
 
@@ -136,7 +138,7 @@ module Rascal
 
     def run_in_container(script, tty:, env:, unset_env:, ssh_agent:, forward_stdin: tty)
       ssh_volumes, ssh_env = ssh_agent_access(ssh_agent.nil? ? @ssh_agent : ssh_agent)
-      @container.run_and_attach('bash', '-c', script,
+      @command_containers.run('bash', '-c', script,
         env: @env_variables.except(*unset_env).merge(env, ssh_env),
         network: @network,
         volumes: [*@volumes, *ssh_volumes],
@@ -187,7 +189,7 @@ module Rascal
     end
 
     def download_missing
-      @container.download_missing
+      @image.download_missing(user: @docker_name)
       @services.each(&:download_missing)
     end
 
@@ -202,7 +204,7 @@ module Rascal
     end
 
     def with_start_lock
-      File.open(File.join(Dir.tmpdir, "#{@container.prefixed_name}.lock"), File::RDWR | File::CREAT, 0o600) do |lock|
+      File.open(File.join(Dir.tmpdir, "#{Docker::NAME_PREFIX}#{@docker_name}.lock"), File::RDWR | File::CREAT, 0o600) do |lock|
         lock.flock(File::LOCK_EX)
         yield
       end

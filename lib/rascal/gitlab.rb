@@ -9,6 +9,7 @@ module Rascal
   module Gitlab
     autoload :ConfigFile,         'rascal/gitlab/config_file'
     autoload :EnvironmentBuilder, 'rascal/gitlab/environment_builder'
+    autoload :Job,                'rascal/gitlab/jobs'
     autoload :Jobs,               'rascal/gitlab/jobs'
     autoload :Variables,          'rascal/gitlab/variables'
   end

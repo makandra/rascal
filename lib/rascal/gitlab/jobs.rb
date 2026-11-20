@@ -3,8 +3,9 @@ module Rascal
     # A job, resolved like GitLab does, with rascal's settings applied.
     # `variable_layers` are its variable definitions, from the lowest to the highest priority
     # (see Jobs#variable_layers). `problems` keep its environment from starting, `warnings`
-    # may make commands fail.
-    Job = Struct.new(:key, :name, :config, :variable_layers, :problems, :warnings)
+    # may make commands fail. `missing_config_hint` starts a message about config the job
+    # lacks, which may come from includes rascal cannot read.
+    Job = Struct.new(:key, :name, :config, :variable_layers, :problems, :warnings, :missing_config_hint)
 
     # The jobs of a .gitlab-ci.yml, resolved like GitLab does: `extends:`, `default:`,
     # `inherit:` and `!reference`. rascal's settings from the `.rascal` block and a `.rascal.yml`
@@ -19,7 +20,7 @@ module Rascal
 
       # The keys of a job's config in which rascal resolves `!reference` tags. Others, like
       # `script:`, may reference includes rascal cannot read, and rascal does not need them.
-      REFERENCE_KEYS = %w[image services before_shell after_shell volumes repo_dir].freeze
+      KEYS_WITH_REFERENCES = %w[image services before_shell after_shell volumes repo_dir].freeze
 
       # Settings for rascal that extend the `.rascal` block, outside of the CI config.
       LOCAL_CONFIG_FILE = '.rascal.yml'
@@ -60,11 +61,25 @@ module Rascal
       # The Environment of the job with the given name, or nil.
       def environment(name)
         if (job = job(name))
-          EnvironmentBuilder.new(job, project_dir: @project_dir, config_file: @file).build
+          EnvironmentBuilder.new(job, project_dir: @project_dir).build
         end
       end
 
       private
+
+      def skipped_includes_warning
+        return if @file.skipped_includes.empty?
+
+        "rascal cannot read these includes, so config from them is missing: #{@file.skipped_includes_description}. " \
+        "If the job needs services or variables from them, set them in the `.rascal` block."
+      end
+
+      # Explains that missing config may come from an include rascal cannot read.
+      def skipped_includes_hint
+        return '' if @file.skipped_includes.empty?
+
+        "It may come from an include rascal cannot read (#{@file.skipped_includes_description}), since rascal only reads local includes. "
+      end
 
       def local_rascal_config
         path = @project_dir.join(LOCAL_CONFIG_FILE)
@@ -97,7 +112,7 @@ module Rascal
           # Like GitLab, resolve !reference tags after `extends:`. Only in the keys rascal uses,
           # so a reference into an unreadable include in `script:` does not get in the way.
           resolve = ->(value) { resolve_references(value, key, problems) }
-          REFERENCE_KEYS.each { |used_key| config[used_key] = resolve.call(config[used_key]) if config.key?(used_key) }
+          KEYS_WITH_REFERENCES.each { |config_key| config[config_key] = resolve.call(config[config_key]) if config.key?(config_key) }
           # References inside lists may resolve to lists, which GitLab flattens.
           %w[services before_shell after_shell].each do |list_key|
             next unless config.key?(list_key)
@@ -107,11 +122,11 @@ module Rascal
           end
           # A variable a reference would define might not be needed, or the .rascal block
           # might define it, so that is only worth a warning.
-          warnings = []
+          warnings = [*skipped_includes_warning]
           resolve_variables = ->(value) { resolve_references(value, key, warnings) }
           variable_layers = variable_layers(job_config, rascal_job_config, resolve_variables)
 
-          Job.new(key, config.fetch('name', key).to_s, config, variable_layers, problems, warnings)
+          Job.new(key, config.fetch('name', key).to_s, config, variable_layers, problems, warnings, skipped_includes_hint)
         end
       end
 
@@ -143,7 +158,7 @@ module Rascal
         elsif in_progress.size >= MAX_REFERENCE_DEPTH
           problems << "#{job_key}: #{description} is nested too deeply."
         elsif (target = referenced_value(location)).nil?
-          problems << "#{job_key}: #{description} could not be found. #{@file.skipped_includes_hint}" \
+          problems << "#{job_key}: #{description} could not be found. #{skipped_includes_hint}" \
                       "Set the config in the `.rascal` block (`.rascal: jobs: #{job_key}:`), or hide the job with `hide: true` there."
         else
           return resolve_references(target, job_key, problems, [*in_progress, location])
@@ -182,7 +197,7 @@ module Rascal
 
         bases = Array(config['extends']).collect(&:to_s)
         if (unknown = bases.reject { |base| @ci_config.key?(base) }).any?
-          raise Error, "#{key}: unknown keys in `extends` (#{unknown.join(', ')}). #{@file.skipped_includes_hint}" \
+          raise Error, "#{key}: unknown keys in `extends` (#{unknown.join(', ')}). #{skipped_includes_hint}" \
                        "Set the missing config in the `.rascal` block (`.rascal: jobs: #{ancestors.first || key}:`), " \
                        "or hide the job with `hide: true` there."
         elsif (invalid = bases.reject { |base| @ci_config[base].is_a?(Hash) }).any?
@@ -230,7 +245,7 @@ module Rascal
         global_variables = global_variables.slice(*inherited_keys(job_config, 'variables', global_variables.keys))
         default_variables = hash_or_empty(resolve.call(hash_or_empty(@ci_config['default'])['variables'])) # not supported by GitLab, kept for compatibility
         [
-          Variables.from_gitlab(global_variables.merge(default_variables).merge(hash_or_empty(resolve.call(job_config['variables'])))),
+          Variables.null_as_empty(global_variables.merge(default_variables).merge(hash_or_empty(resolve.call(job_config['variables'])))),
           hash_or_empty(resolve.call(@rascal_config['variables'])),
           hash_or_empty(resolve.call(rascal_job_config['variables'])),
         ]

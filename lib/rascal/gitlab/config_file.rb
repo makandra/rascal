@@ -48,29 +48,14 @@ module Rascal
         @config
       end
 
-      # A warning that config from includes rascal cannot read is missing, or nil.
-      def skipped_includes_warning
-        return if @skipped_includes.empty?
-
-        "rascal cannot read these includes, so config from them is missing: #{skipped_includes_description}. " \
-        "If the job needs services or variables from them, set them in the `.rascal` block."
-      end
-
-      # Explains, as the start of a message, that missing config may come from an include rascal
-      # cannot read. Empty if there are none.
-      def skipped_includes_hint
-        return '' if @skipped_includes.empty?
-
-        "It may come from an include rascal cannot read (#{skipped_includes_description}), since rascal only reads local includes. "
-      end
-
-      private
-
+      # The includes rascal skipped, like `project: group/templates, file: ruby.yml; https://example.com/ci.yml`.
       def skipped_includes_description
         @skipped_includes.collect do |entry|
           entry.is_a?(Hash) ? entry.slice('project', 'file', 'remote', 'template', 'component', 'local').collect { |k, v| "#{k}: #{Array(v).join(', ')}" }.join(', ') : entry.to_s
         end.join('; ')
       end
+
+      private
 
       def load_with_includes(path, including_paths)
         config = parse(path.read, path)

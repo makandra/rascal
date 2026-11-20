@@ -132,11 +132,36 @@ describe 'rascal run' do
   end
 
   # The script itself is covered by spec/rascal/command_script_spec.rb.
-  describe 'waiting for services' do
+  describe 'the script around the command' do
 
     def container_script
       run_rascal!('run', 'job', '--', 'rake')
       docker.history.reverse.detect { |command| command.include?('run') && command.include?('container') }.reject { |part| part.is_a?(Hash) }.last
+    end
+
+    it 'runs before_shell and after_shell around the command, in the project directory' do
+      gitlab_ci_config(<<~YAML)
+        .rascal:
+          repo_dir: /app
+          before_shell:
+            - bundle check
+          after_shell:
+            - echo done
+        job:
+          image: job-image:latest
+      YAML
+
+      expect(container_script).to include("safe.directory /app", "\nbundle check\nrake\n__rascal_status=$?\necho done\n")
+    end
+
+    it 'gives files the command created back to the host user' do
+      skip 'only applies when not running as root' if Process.uid == 0
+      gitlab_ci_config(<<~YAML)
+        job:
+          image: job-image:latest
+      YAML
+
+      expect(container_script).to include("chown -h #{Process.uid}:#{Process.gid}")
     end
 
     it 'waits until services it started accept connections on one of their exposed TCP ports' do

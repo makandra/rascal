@@ -27,7 +27,7 @@ module Rascal
     # `command` is a bash command line. `waits` are [host, ports] pairs, for which it waits up to
     # `wait_timeout` seconds each. `owner` is the [uid, gid] that should own new files in
     # `working_dir`, or nil to leave them as they are.
-    def initialize(command, working_dir:, before_shell: [], after_shell: [], waits: [], wait_timeout: 30, owner: nil)
+    def initialize(command, working_dir:, before_shell: [], after_shell: [], waits: [], wait_timeout:, owner: nil)
       @command = command
       @working_dir = working_dir
       @before_shell = before_shell

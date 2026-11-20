@@ -1,10 +1,11 @@
 module Rascal
   class Service
-    attr_reader :name, :container, :aliases, :env_variables, :command
+    attr_reader :name, :image, :container, :aliases, :env_variables, :command
 
     def initialize(name, env_variables: {}, image:, aliases:, volumes: [], command: nil, healthcheck_port: nil)
       @name = name
-      @container = Docker::Container.new(name, image)
+      @image = Docker::Image.new(image)
+      @container = Docker::Container.new(name, @image)
       @aliases = aliases
       @healthcheck_port = healthcheck_port
       @volumes = volumes
@@ -19,12 +20,12 @@ module Rascal
       if (port = @healthcheck_port.to_s[/\A\d+\z/])
         [port.to_i]
       else
-        @container.exposed_tcp_ports
+        @image.exposed_tcp_ports
       end
     end
 
     def download_missing
-      @container.download_missing
+      @image.download_missing(user: @name)
     end
 
     # Returns whether it started the service.
@@ -59,19 +60,19 @@ module Rascal
     def status
       {
         'aliases' => @aliases,
-        'image' => @container.image,
-        'image_present' => @container.image_present?,
+        'image' => @image.name,
+        'image_present' => @image.present?,
         'command' => @command,
         'variables' => @env_variables,
         # Unknown until the image is downloaded.
-        'wait_ports' => (ports if @container.image_present? || @healthcheck_port),
+        'wait_ports' => (ports if @image.present? || @healthcheck_port),
         **@container.status,
         'logs' => "docker logs #{@container.prefixed_name}",
       }
     end
 
     def update(**args)
-      @container.update(**args)
+      @image.update(**args)
     end
   end
 end

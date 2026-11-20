@@ -7,18 +7,16 @@ module Rascal
       INPUTS_ADVICE = "`spec: inputs:` (`$[[ inputs.name ]]`), which rascal does not support. " \
                       "Set the value in the `.rascal` block."
 
-      # `project_dir` is the directory of the .gitlab-ci.yml. `config_file` explains config that
-      # may be missing because rascal cannot read some includes.
-      def initialize(job, project_dir:, config_file:)
+      # `project_dir` is the directory of the .gitlab-ci.yml.
+      def initialize(job, project_dir:)
         @job = job
         @config = job.config
         @project_dir = project_dir
-        @config_file = config_file
-        @problems = job.problems.dup
-        @warnings = job.warnings.dup
       end
 
       def build
+        @problems = @job.problems.dup
+        @warnings = @job.warnings.dup
         repo_dir = @config.fetch('repo_dir', '/repo')
         shared_volumes = [Docker::Volume::Bind.new(@project_dir, repo_dir), Docker::Volume::Named.new("#{docker_name}-builds", '/builds')]
         variables = Variables.new(predefined_variables(repo_dir), *@job.variable_layers)
@@ -35,7 +33,7 @@ module Rascal
           ssh_agent: [true, 'true'].include?(@config.fetch('ssh_agent', false)),
           services_timeout: services_timeout,
           problems: @problems.uniq,
-          warnings: [@config_file.skipped_includes_warning, *@warnings].compact.uniq,
+          warnings: @warnings.uniq,
         )
       end
 
@@ -87,7 +85,7 @@ module Rascal
           # A job whose templates could not be resolved lacks its image as a consequence.
           return if @job.problems.any?
 
-          @problems << "Job '#{@job.key}' has no image. #{@config_file.skipped_includes_hint}Set `image:` in the job, in `default:`, " \
+          @problems << "Job '#{@job.key}' has no image. #{@job.missing_config_hint}Set `image:` in the job, in `default:`, " \
                        "or in the `.rascal` block (`.rascal: jobs: #{@job.key}: image:`)."
           return
         end
@@ -138,7 +136,7 @@ module Rascal
         Array(@config.fetch('services', [])).collect do |service_config|
           # GitLab also allows services as a plain image name.
           service_config = { 'name' => service_config.to_s } unless service_config.is_a?(Hash)
-          own_variables = Variables.from_gitlab(hash_or_empty(service_config['variables']))
+          own_variables = Variables.null_as_empty(hash_or_empty(service_config['variables']))
           service_variables = variables.merge(own_variables)
           raw_image = service_config['name'].to_s
           image = service_image(raw_image, service_variables)

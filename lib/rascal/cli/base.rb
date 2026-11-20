@@ -37,9 +37,9 @@ module Rascal
       end
 
       def find_environment(environment_name)
-        definition = environment_definition
-        definition.environment(environment_name) or begin
-          available_environments = definition.names.join(', ')
+        jobs = project_jobs
+        jobs.environment(environment_name) or begin
+          available_environments = jobs.names.join(', ')
           if environment_name
             fail_with_error("Unknown environment #{environment_name}. Available: #{available_environments}.")
           else
@@ -60,16 +60,16 @@ module Rascal
         return enum_for(:each_environment, name) unless block_given?
 
         if name == :all
-          definition = environment_definition
-          definition.names.each do |environment_name|
-            yield definition.environment(environment_name)
+          jobs = project_jobs
+          jobs.names.each do |environment_name|
+            yield jobs.environment(environment_name)
           end
         else
           yield find_environment(name)
         end
       end
 
-      def environment_definition
+      def project_jobs
         Gitlab::Jobs.find(config_location) or
           fail_with_error("Could not find a .gitlab-ci.yml in #{config_location}. Run rascal in your project's root directory, " \
                           "or point to the file with --config-file.")

@@ -55,7 +55,7 @@ module Rascal
           YAML
 
           expect(environment.name).to eq 'job-1'
-          expect(environment.container.image).to eq 'default-image:latest'
+          expect(environment.image.name).to eq 'default-image:latest'
           expect(environment.env_variables).to include(
             'foo-variable' => 'foo',
             'bar-variable' => 'bar',
@@ -73,7 +73,7 @@ module Rascal
               script: rake
           YAML
 
-          expect(environment.container.image).to eq 'global-image:latest'
+          expect(environment.image.name).to eq 'global-image:latest'
           expect(environment.services.collect(&:aliases)).to eq [['global-service']]
         end
 
@@ -102,7 +102,7 @@ module Rascal
                 C: job
           YAML
 
-          expect(environment.container.image).to eq 'base-image:latest'
+          expect(environment.image.name).to eq 'base-image:latest'
           expect(environment.services.collect(&:aliases)).to eq [['db']]
           expect(environment.env_variables).to include('A' => 'base', 'B' => 'more', 'C' => 'job')
         end
@@ -122,12 +122,12 @@ module Rascal
               extends: [.postgres, .redis]
           YAML
 
-          expect(environment.container.image).to eq 'redis-image:latest'
+          expect(environment.image.name).to eq 'redis-image:latest'
           expect(environment.services.collect(&:aliases)).to eq [['redis']]
         end
 
         it 'reports templates GitLab would reject as a problem of the job, keeping other jobs usable' do
-          definition = definition(<<~YAML)
+          jobs = gitlab_jobs(<<~YAML)
             .a:
               extends: circular
             circular:
@@ -140,13 +140,13 @@ module Rascal
               image: job-image:latest
           YAML
 
-          expect(definition.names).to eq ['circular', 'deploy', 'job']
-          expect(definition.environment('circular').problems).to eq ['circular: circular dependency detected in `extends`']
-          expect(definition.environment('deploy').problems).to eq [
+          expect(jobs.names).to eq ['circular', 'deploy', 'job']
+          expect(jobs.environment('circular').problems).to eq ['circular: circular dependency detected in `extends`']
+          expect(jobs.environment('deploy').problems).to eq [
             'deploy: unknown keys in `extends` (.deploy-template). Set the missing config in the `.rascal` block ' \
             '(`.rascal: jobs: deploy:`), or hide the job with `hide: true` there.'
           ]
-          expect(definition.environment('job').problems).to eq []
+          expect(jobs.environment('job').problems).to eq []
         end
 
         it 'reports problems of the templates a job extends' do
@@ -193,7 +193,7 @@ module Rascal
         end
 
         it 'lets the .rascal block hide a job whose templates cannot be resolved' do
-          expect(definition(<<~YAML).names).to eq ['job']
+          expect(gitlab_jobs(<<~YAML).names).to eq ['job']
             .rascal:
               jobs:
                 deploy:
@@ -364,7 +364,7 @@ module Rascal
           YAML
 
           expect(from_config(yaml, 'none').services).to eq []
-          expect(from_config(yaml, 'some').container.image).to eq 'default-image:latest'
+          expect(from_config(yaml, 'some').image.name).to eq 'default-image:latest'
           expect(from_config(yaml, 'some').services).to eq []
         end
 
@@ -400,7 +400,7 @@ module Rascal
               image: job-image:latest
           YAML
 
-          expect(environment.container.image).to eq 'job-image:latest'
+          expect(environment.image.name).to eq 'job-image:latest'
         end
 
         it 'lets the job replace the services of the default block' do
@@ -430,7 +430,8 @@ module Rascal
                 name: job-image:latest
           YAML
 
-          expect(environment.container).to have_attributes(image: 'job-image:latest', entrypoint: nil)
+          expect(environment.image.name).to eq 'job-image:latest'
+          expect(environment.command_containers.entrypoint).to be_nil
         end
 
         it 'lets the .rascal block override the job' do
@@ -441,7 +442,7 @@ module Rascal
               image: job-image:latest
           YAML
 
-          expect(environment.container.image).to eq 'rascal-image:latest'
+          expect(environment.image.name).to eq 'rascal-image:latest'
         end
 
         it 'lets .rascal job config override the .rascal block' do
@@ -455,7 +456,7 @@ module Rascal
               image: job-image:latest
           YAML
 
-          expect(environment.container.image).to eq 'rascal-job-image:latest'
+          expect(environment.image.name).to eq 'rascal-job-image:latest'
         end
 
         it 'orders variables from global over job to .rascal' do
@@ -495,8 +496,8 @@ module Rascal
                 OPTS: $OPTS --job
           YAML
 
-          # The job's definition replaces the global one (Gitlab::Ci::Variables::Helpers.merge_variables),
-          # so $OPTS has no lower definition and rascal expands it to an empty string.
+          # The job's jobs replaces the global one (Gitlab::Ci::Variables::Helpers.merge_variables),
+          # so $OPTS has no lower jobs and rascal expands it to an empty string.
           expect(environment.env_variables).to include('OPTS' => ' --job')
         end
 
@@ -583,7 +584,7 @@ module Rascal
       describe '#names' do
 
         it 'lists jobs, but not templates starting with a dot' do
-          expect(definition(<<~YAML).names).to eq ['job-1', 'job-2']
+          expect(gitlab_jobs(<<~YAML).names).to eq ['job-1', 'job-2']
             .rascal:
               variables:
                 rascal-variable: bar
@@ -600,7 +601,7 @@ module Rascal
         end
 
         it 'does not list default: and stages:' do
-          expect(definition(<<~YAML).names).to eq ['job']
+          expect(gitlab_jobs(<<~YAML).names).to eq ['job']
             default:
               foo: bar
 
@@ -614,7 +615,7 @@ module Rascal
         end
 
         it 'renames a job with name: and hides one with hide: in the .rascal block' do
-          definition = definition(<<~YAML)
+          jobs = gitlab_jobs(<<~YAML)
             .rascal:
               jobs:
                 old-name:
@@ -627,13 +628,13 @@ module Rascal
               image: deploy-image:latest
           YAML
 
-          expect(definition.names).to eq ['new-name']
-          expect(definition.environment('new-name').container.image).to eq 'job-image:latest'
-          expect(definition.environment('old-name')).to be_nil
+          expect(jobs.names).to eq ['new-name']
+          expect(jobs.environment('new-name').image.name).to eq 'job-image:latest'
+          expect(jobs.environment('old-name')).to be_nil
         end
 
         it 'ignores global keywords' do
-          expect(definition(<<~YAML).names).to eq ['job']
+          expect(gitlab_jobs(<<~YAML).names).to eq ['job']
             variables:
               IMAGE_TAG: '1'
             workflow:
@@ -659,7 +660,7 @@ module Rascal
         end
 
         it 'lists jobs without an image, which fail only when used' do
-          expect(definition(<<~YAML).names).to eq ['broken', 'job']
+          expect(gitlab_jobs(<<~YAML).names).to eq ['broken', 'job']
             job:
               image: job-image:latest
             broken:
@@ -668,7 +669,7 @@ module Rascal
         end
 
         it 'accepts an empty .rascal block' do
-          expect(definition(<<~YAML).names).to eq ['job']
+          expect(gitlab_jobs(<<~YAML).names).to eq ['job']
             .rascal:
             job:
               image: job-image:latest
@@ -676,7 +677,7 @@ module Rascal
         end
 
         it 'treats job names YAML reads as numbers as strings' do
-          definition = definition(<<~YAML)
+          jobs = gitlab_jobs(<<~YAML)
             .rascal:
               jobs:
                 2.6:
@@ -686,12 +687,12 @@ module Rascal
               image: job-image:latest
           YAML
 
-          expect(definition.names).to eq ['2.6']
-          expect(definition.environment('2.6').env_variables).to include('FOO' => 'bar')
+          expect(jobs.names).to eq ['2.6']
+          expect(jobs.environment('2.6').env_variables).to include('FOO' => 'bar')
         end
 
         it 'returns nothing for an empty file' do
-          expect(definition('').names).to eq []
+          expect(gitlab_jobs('').names).to eq []
         end
 
       end
@@ -699,7 +700,7 @@ module Rascal
       describe 'a typical config' do
 
         let(:typical) do
-          definition(File.read(File.expand_path('../../fixtures/typical.gitlab-ci.yml', __dir__)), project: 'app')
+          gitlab_jobs(File.read(File.expand_path('../../fixtures/typical.gitlab-ci.yml', __dir__)), project: 'app')
         end
 
         it 'lists the jobs' do
@@ -709,7 +710,7 @@ module Rascal
         it 'builds the environment for the test job' do
           environment = typical.environment('rspec')
 
-          expect(environment.container.image).to eq 'registry.example.com/app/test-env:1.2.3'
+          expect(environment.image.name).to eq 'registry.example.com/app/test-env:1.2.3'
           expect(environment.env_variables).to include(
             'CI' => 'true',
             'GITLAB_CI' => 'true',
@@ -718,7 +719,7 @@ module Rascal
             'COREPACK_HOME' => '/repo/tmp/cache/corepack',
             'REDIS_HOST' => 'redis',
           )
-          expect(environment.services.collect { |s| [s.aliases.first, s.container.image] }).to eq [
+          expect(environment.services.collect { |s| [s.aliases.first, s.image.name] }).to eq [
             ['db', 'postgres:16'],
             ['redis', 'redis:7.0'],
           ]

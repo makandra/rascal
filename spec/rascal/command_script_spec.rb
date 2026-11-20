@@ -2,7 +2,7 @@ module Rascal
   describe CommandScript do
 
     def script(command = 'rake', **options)
-      described_class.new(command, working_dir: '/repo', **options).to_s
+      described_class.new(command, working_dir: '/repo', wait_timeout: 30, **options).to_s
     end
 
     def lines(script)

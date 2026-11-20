@@ -3,7 +3,7 @@ require 'tmpdir'
 # Helpers for specs of Rascal::Gitlab that read a .gitlab-ci.yml from a project directory.
 module GitlabHelpers
   # Writes the config to a project directory called "repo", or another name, and returns its Jobs.
-  def definition(yaml, project: 'repo')
+  def gitlab_jobs(yaml, project: 'repo')
     project_dir = @tmp_dir.join(project)
     project_dir.mkpath
     project_dir.join('.gitlab-ci.yml').write(yaml)
@@ -15,7 +15,7 @@ module GitlabHelpers
   end
 
   def from_config(yaml, name)
-    definition(yaml).environment(name)
+    gitlab_jobs(yaml).environment(name)
   end
 end
 

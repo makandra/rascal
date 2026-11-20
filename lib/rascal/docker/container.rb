@@ -1,60 +1,34 @@
-require 'securerandom'
-require 'shellwords'
 require 'time'
 
 module Rascal
   module Docker
+    # A long-lived container that runs a service, like a database, under a fixed name.
     class Container
-      # Names of one-off containers for commands end with this and a random suffix.
-      RUN_SUFFIX = '-run-'
-
       include IOHelper
 
-      attr_reader :image, :entrypoint, :prefixed_name
+      attr_reader :image, :prefixed_name
 
-      # `entrypoint` overrides the image's entrypoint, like `image: entrypoint:` in GitLab.
-      # [] or [''] removes it.
-      def initialize(name, image, entrypoint: nil)
+      # `image` is a Docker::Image.
+      def initialize(name, image)
         @name = name
         @prefixed_name = "#{NAME_PREFIX}#{name}"
         @image = image
-        @entrypoint = entrypoint && (entrypoint.empty? ? [''] : entrypoint)
-      end
-
-      def download_missing
-        unless image_info
-          info "Downloading image for #{@name}"
-          pull
-        end
-      end
-
-      # Whether the entrypoint (from the CI config, or else the image's) is a shell that
-      # expects the command as one string, like `sh -c`, `bash -lc` or `sh -ec`.
-      def shell_entrypoint?
-        entrypoint = @entrypoint || image_info&.dig('Config', 'Entrypoint')
-        Array(entrypoint).last.to_s.match?(/\A-[a-zA-Z]*c[a-zA-Z]*\z/)
-      end
-
-      # The TCP ports the image declares with EXPOSE, like [5432] for postgres.
-      def exposed_tcp_ports
-        ports = image_info&.dig('Config', 'ExposedPorts') || {}
-        ports.keys.filter_map { |port| port[%r{\A(\d+)/tcp\z}, 1]&.to_i }
       end
 
       # When the container was last started, or nil.
       def started_at
-        started_at = container_info&.dig('State', 'StartedAt')
+        started_at = inspection&.dig('State', 'StartedAt')
         Time.parse(started_at) if started_at && !started_at.start_with?('0001-')
       end
 
       def running?
-        !!container_info&.dig('State', 'Running')
+        !!inspection&.dig('State', 'Running')
       end
 
       # For `rascal status`: the container's name, and its state like "running", "exited"
       # or "missing", with when it started and how it exited.
       def status
-        state = container_info&.dig('State')
+        state = inspection&.dig('State')
         return { 'container' => @prefixed_name, 'state' => 'missing' } unless state
 
         status = state['Status'] || (state['Running'] ? 'running' : 'exited')
@@ -66,15 +40,6 @@ module Rascal
           # Why Docker could not start it, like a missing command.
           'error' => (state['Error'] unless state['Error'].to_s.empty?),
         }.compact
-      end
-
-      def image_present?
-        !@image.to_s.empty? && !image_info.nil?
-      end
-
-      # Names of one-off containers of commands that run now, or were left over.
-      def run_names
-        Docker.interface.run('container', 'ps', '--all', '--format', '{{.Names}}', '--filter', run_name_filter, output: :text).to_s.split
       end
 
       def exists?
@@ -103,99 +68,22 @@ module Rascal
         @id = nil
       end
 
-      def start(network: nil, network_aliases: [], volumes: [], env: {}, command: [])
+      # Creates the container if it does not exist, and starts it.
+      def start(network:, network_aliases: [], volumes: [], env: {}, command: [])
         info "Starting container for #{@name}"
         create(network: network, network_aliases: network_aliases, volumes: volumes, env: env, command: command) unless exists?
-        Docker.interface.run(
-          'container',
-          'start',
-          id,
-        )
+        Docker.interface.run('container', 'start', id)
       end
-
-      def create(network: nil, network_aliases: [], volumes: [], env: {}, command: [])
-        @id = Docker.interface.run(
-          'container',
-          'create',
-          '--name', @prefixed_name,
-          *(volumes.flat_map { |v| ['-v', v.to_param] }),
-          *env_args(env),
-          *(['--network', network.id] if network),
-          *(network_aliases.flat_map { |network_alias| ['--network-alias', network_alias] } if network),
-          @image,
-          *command,
-          output: :id,
-        )
-      end
-
-      # Runs a one-off container for a command. If rascal gets a signal, like when a script
-      # or an agent gives up on a command, it removes the container, which would keep running otherwise.
-      # With `tty`, the container gets a terminal. With `forward_stdin`, it reads rascal's stdin.
-      # Returns the command's Process::Status.
-      def run_and_attach(*command, env:, network:, volumes:, working_dir:, tty:, forward_stdin:)
-        run_name = "#{@prefixed_name}#{RUN_SUFFIX}#{SecureRandom.hex(4)}"
-        remove_on_signal(run_name) do
-          run_container(run_name, *command, env: env, network: network, volumes: volumes, working_dir: working_dir, tty: tty, forward_stdin: forward_stdin)
-        end
-      end
-
-      # Removes one-off containers left over from commands that were killed.
-      def clean_runs
-        ids = Docker.interface.run('container', 'ps', '--all', '--quiet', '--filter', run_name_filter, output: :text).to_s.split
-        return if ids.empty?
-
-        info "Removing #{ids.size} leftover command container#{'s' if ids.size > 1} for #{@name}"
-        Docker.interface.run('container', 'rm', '--force', '--volumes', *ids)
-      end
-
-      private
-
-      def run_container(run_name, *command, env:, network:, volumes:, working_dir:, tty:, forward_stdin:)
-        Docker.interface.run_and_attach(
-          'container',
-          'run',
-          '--rm',
-          '--name', run_name,
-          '-a', 'STDOUT',
-          '-a', 'STDERR',
-          *(['-a', 'STDIN', '--interactive'] if forward_stdin),
-          *('--tty' if tty),
-          *(['--entrypoint', @entrypoint.first.to_s] if @entrypoint),
-          *(['-w', working_dir] if working_dir),
-          *(volumes.flat_map { |v| ['-v', v.to_param] }),
-          *env_args(env),
-          *(['--network', network.id] if network),
-          @image,
-          *(@entrypoint&.drop(1)),
-          # An entrypoint like `sh -c` takes the command as one string.
-          *(shell_entrypoint? ? [Shellwords.join(command)] : command),
-          redirect_io: {
-            out: stdout,
-            err: stderr,
-            in: stdin,
-          },
-          allow_failure: true,
-        )
-      end
-
-      public
 
       def clean
         if running?
           info "Stopping container for #{@name}"
-          stop_container
+          Docker.interface.run('container', 'stop', id)
         end
         if exists?
           info "Removing container for #{@name}"
           remove_container
         end
-      end
-
-      def update(skip: [])
-        return if skip.include?(@image)
-        info "Updating image #{@image}"
-        pull
-        @image
       end
 
       def id
@@ -211,97 +99,39 @@ module Rascal
 
       private
 
-      # Matches only containers of commands, not service containers of a job whose name starts the
-      # same, like `job-run-tests` for `job`.
-      def run_name_filter
-        "name=^/#{Regexp.escape(@prefixed_name)}#{RUN_SUFFIX}[0-9a-f]{8}$"
-      end
-
-      def remove_on_signal(run_name)
-        previous_handlers = %w[INT TERM HUP].to_h do |signal|
-          handler = Signal.trap(signal) do
-            pid = Process.spawn('docker', 'container', 'rm', '--force', '--volumes', run_name, out: File::NULL, err: File::NULL)
-            Process.wait(pid)
-            exit(128 + Signal.list.fetch(signal))
-          end
-          [signal, handler]
-        end
-        yield
-      ensure
-        previous_handlers&.each { |signal, handler| Signal.trap(signal, handler) }
-      end
-
-      def pull
-        Docker.interface.run(
-          'pull',
-          @image,
-          stdout: stderr,
+      def create(network:, network_aliases:, volumes:, env:, command:)
+        @id = Docker.interface.run(
+          'container',
+          'create',
+          '--name', @prefixed_name,
+          *volumes.flat_map { |volume| ['-v', volume.to_param] },
+          *Docker.env_args(env),
+          '--network', network.id,
+          *network_aliases.flat_map { |network_alias| ['--network-alias', network_alias] },
+          @image.name,
+          *command,
+          output: :id,
         )
-      rescue Interface::Error => e
-        case e.message
-        when /docker daemon|docker\.sock/i
-          # Like no permission to use Docker. Docker's message says enough.
-          raise
-        when /unauthorized|authentication required|denied|no basic auth credentials/i
-          registry = @image.include?('/') && @image.split('/').first.match?(/[.:]|\Alocalhost\z/) ? @image.split('/').first : 'docker.io'
-          raise Error, "#{e.message.strip}\nDocker may need credentials for #{registry}. Log in with `docker login #{registry}`, then try again."
-        when /manifest unknown|name unknown|failed to resolve reference.*: not found/i
-          raise Error, "#{e.message.strip}\nDocker found no image #{@image} in its registry. Its tag may have been deleted, or the name is wrong. " \
-                       'Set another image in the .rascal block (`jobs: <job>: image:` or `services:`), or build the image yourself under this name.'
-        else
-          raise
-        end
       end
 
       # A fresh `docker container inspect`, or nil if there is no container.
-      def container_info
+      def inspection
         return unless id
-        Docker.interface.run(
-          'container',
-          'inspect',
-          id,
-          output: :json,
-        ).first
+
+        Docker.interface.run('container', 'inspect', id, output: :json).first
       end
 
       # Ids of the networks the container is attached to. Empty for a container
       # that was created but never started.
       def attached_network_ids
-        networks = container_info&.dig('NetworkSettings', 'Networks') || {}
+        networks = inspection&.dig('NetworkSettings', 'Networks') || {}
         networks.each_value.filter_map { |n| n['NetworkID'] }.reject(&:empty?).uniq
-      end
-
-      def image_info
-        Docker.interface.run(
-          'image',
-          'inspect',
-          @image,
-          output: :json,
-          allow_failure: true,
-        ).first
-      end
-
-      def stop_container
-        Docker.interface.run(
-          'container',
-          'stop',
-          id,
-        )
       end
 
       # Also removes the container's anonymous volumes, like the data volume that
       # the postgres and redis images declare. Named volumes are kept.
       def remove_container
-        Docker.interface.run(
-          'container',
-          'rm',
-          '--volumes',
-          id,
-        )
-      end
-
-      def env_args(env)
-        env.flat_map { |key, value| ['-e', "#{key}=#{value}"] }
+        Docker.interface.run('container', 'rm', '--volumes', id)
       end
     end
   end

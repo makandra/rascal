@@ -8,6 +8,17 @@ module Rascal
 
       describe 'the environment' do
 
+        it 'needs only a Job and the project directory' do
+          job = Job.new('rspec', 'tests', { 'image' => 'ruby:$RUBY' }, [{ 'RUBY' => '3.4' }, {}, { 'EXTRA' => 'yes' }], [], ['A warning'], '')
+
+          environment = described_class.new(job, project_dir: Pathname.new('/projects/my app')).build
+
+          expect(environment).to have_attributes(name: 'tests', problems: [], warnings: ['A warning'])
+          expect(environment.image.name).to eq 'ruby:3.4'
+          expect(environment.network.prefixed_name).to eq 'rascal-my_app-tests'
+          expect(environment.env_variables).to include('RUBY' => '3.4', 'EXTRA' => 'yes', 'CI_JOB_NAME' => 'rspec', 'CI_PROJECT_NAME' => 'my app')
+        end
+
         it 'builds the environment of a job, named after it' do
           environment = from_config(<<~YAML, 'job-1')
             job-1:
@@ -18,7 +29,7 @@ module Rascal
 
           expect(environment.name).to eq 'job-1'
           expect(environment.services).to eq []
-          expect(environment.container.image).to eq 'job-1-image:latest'
+          expect(environment.image.name).to eq 'job-1-image:latest'
         end
 
         it 'mounts the project at /repo and keeps /builds in a volume' do
@@ -49,17 +60,17 @@ module Rascal
         end
 
         it 'replaces characters Docker does not allow in names' do
-          environment = definition(<<~YAML, project: 'my app').environment('job')
+          environment = gitlab_jobs(<<~YAML, project: 'my app').environment('job')
             job:
               image: job-image:latest
           YAML
 
-          expect(environment.container.prefixed_name).to eq 'rascal-my_app-job'
+          expect(environment.network.prefixed_name).to eq 'rascal-my_app-job'
           expect(environment.env_variables).to include('CI_PROJECT_NAME' => 'my app')
         end
 
         it 'takes services_timeout in seconds, and reports anything else as a problem' do
-          definition = definition(<<~YAML)
+          jobs = gitlab_jobs(<<~YAML)
             .rascal:
               services_timeout: '90'
               jobs:
@@ -71,8 +82,8 @@ module Rascal
               image: job-image:latest
           YAML
 
-          expect(definition.environment('job').services_timeout).to eq 90
-          expect(definition.environment('invalid').problems).to eq ['services_timeout must be a number of seconds, not "soon".']
+          expect(jobs.environment('job').services_timeout).to eq 90
+          expect(jobs.environment('invalid').problems).to eq ['services_timeout must be a number of seconds, not "soon".']
         end
 
       end
@@ -87,7 +98,7 @@ module Rascal
                 entrypoint: ['']
           YAML
 
-          expect(environment.container.image).to eq 'job-image:latest'
+          expect(environment.image.name).to eq 'job-image:latest'
         end
 
         it 'reports a job without an image as a problem' do
@@ -107,7 +118,7 @@ module Rascal
               image: registry.example.com/app:$IMAGE_TAG
           YAML
 
-          expect(environment.container.image).to eq 'registry.example.com/app:1.2.3'
+          expect(environment.image.name).to eq 'registry.example.com/app:1.2.3'
         end
 
         it 'reports undefined variables in the image as a problem' do
@@ -133,7 +144,7 @@ module Rascal
           YAML
 
           expect(environment.problems).to eq []
-          expect(environment.container.image).to eq 'registry.example.com/app/test:latest'
+          expect(environment.image.name).to eq 'registry.example.com/app/test:latest'
         end
 
       end
@@ -152,7 +163,7 @@ module Rascal
 
           expect(environment.services.size).to eq 1
           service = environment.services.first
-          expect(service.container.image).to eq 'service-1-image'
+          expect(service.image.name).to eq 'service-1-image'
           expect(service.aliases).to eq ['service-1']
           expect(service.command).to eq ['bin/start']
         end
@@ -197,7 +208,7 @@ module Rascal
           YAML
 
           service = environment.services.first
-          expect(service.container.image).to eq 'postgres:17-alpine'
+          expect(service.image.name).to eq 'postgres:17-alpine'
           expect(service.env_variables).to include('PGDATA' => '/builds/pg')
         end
 
@@ -222,7 +233,7 @@ module Rascal
                 - registry.example.com/group/redis:7@sha256:abc
           YAML
 
-          expect(environment.services.collect { |s| [s.container.image, s.aliases] }).to eq [
+          expect(environment.services.collect { |s| [s.image.name, s.aliases] }).to eq [
             ['postgres:15', ['postgres']],
             ['registry.example.com/group/redis:7@sha256:abc', ['registry.example.com-group-redis', 'registry.example.com__group__redis']],
           ]
@@ -311,7 +322,7 @@ module Rascal
           YAML
 
           postgres, mysql = environment.services
-          allow(postgres.container).to receive(:exposed_tcp_ports).and_return([5432])
+          allow(postgres.image).to receive(:exposed_tcp_ports).and_return([5432])
           expect(postgres.ports).to eq [5432]
           expect(mysql.ports).to eq [3306]
         end

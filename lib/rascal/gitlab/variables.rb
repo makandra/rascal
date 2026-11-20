@@ -25,7 +25,7 @@ module Rascal
 
       # Variable definitions as GitLab reads them, where null means an empty string. (In
       # rascal's own settings, null removes a variable.)
-      def self.from_gitlab(definitions)
+      def self.null_as_empty(definitions)
         definitions.transform_values { |value| value.nil? ? '' : value }
       end
 
