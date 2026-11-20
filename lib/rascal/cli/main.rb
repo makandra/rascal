@@ -12,46 +12,59 @@ module Rascal
       # Options that change a single `run` or `shell`, like for updating dependencies.
       def self.command_environment_options
         method_option :env, type: :string, repeatable: true, banner: 'NAME=VALUE',
-          desc: 'Set a variable in the container, for this command only. Repeat for more.'
+          desc: 'Set a variable for this command only. Repeatable.'
         method_option :unset_env, type: :string, repeatable: true, banner: 'NAME',
-          desc: 'Remove a variable from the container, like CI, for this command only. Repeat for more.'
+          desc: 'Remove a variable, like CI, for this command only. Repeatable.'
         method_option :ssh_agent, type: :boolean,
-          desc: 'Give the container access to your SSH agent, for this command only. --no-ssh-agent keeps it away, even if the config enables it.'
+          desc: 'Give this command your SSH agent. --no-ssh-agent keeps it away.'
       end
+
       # The README that comes with this version of rascal, packaged into the gem.
       README_PATH = File.expand_path('../../../README.md', __dir__)
 
+      desc 'help [COMMAND]', 'Show this help, or the help of a command'
       def help(subcommand = false)
         return super if subcommand
 
         say <<~TEXT
 
-          rascal runs the environment of a GitLab CI job locally in Docker: the job's image with
-          your project mounted at /repo, and the job's services, like a database. Run it in the
-          project's root directory, where .gitlab-ci.yml is.
+          rascal runs the environment of a GitLab CI job locally in Docker: the job's
+          image with your project mounted at /repo, and the job's services, like a
+          database. Run it in the project's root directory, where .gitlab-ci.yml is.
 
           Typical use, with a job called rspec:
-            rascal environments                                # list the jobs
-            rascal status rspec                                # what rascal made of a job, starts nothing
-            rascal run rspec -- bundle install                 # set up; the first run downloads images
-            rascal run rspec -- bundle exec rspec spec/models  # work
-            rascal shell rspec                                 # interactive bash, needs a terminal
-            rascal clean --all --volumes                       # tear down
+            rascal environments            # list the jobs
+            rascal status rspec            # what rascal made of the job, starts nothing
+            rascal run rspec -- true       # first run: downloads images, takes minutes
+            rascal run rspec -- bundle install
+            rascal run rspec -- bin/rails db:create db:schema:load
+            rascal run rspec -- bundle exec rspec spec/models/user_spec.rb
+            rascal shell rspec             # interactive bash, needs a terminal
+            rascal clean rspec             # stop its services, deletes their data
 
         TEXT
         super
         say <<~TEXT
           Good to know:
-            - Each command runs in a new container. Services keep running between commands, and
-              files in the project and in volumes stay.
-            - Options go before --. rascal run rspec --env NAME=VALUE --unset-env CI --ssh-agent -- ...
-              changes the container for this one command.
-            - Lasting settings go into a .rascal.yml next to .gitlab-ci.yml.
-            - If something does not work, rascal status JOB shows what rascal made of the job, and
-              how its services run.
+            - rascal does not run the job's before_script or script. Set the project
+              up yourself, following them in .gitlab-ci.yml.
+            - Each command runs in a new container. Only files in the project and in
+              volumes stay, and services keep running with their data. Gems stay if
+              BUNDLE_PATH points into the project (see Variables in rascal status).
+            - The container gets the job's variables and CI=true, not your shell's
+              variables. Setup may change files like Gemfile.lock: check git status.
+            - Options go before --, like rascal run rspec --env NAME=VALUE -- ...
+              --env, --unset-env and --ssh-agent change only that one command.
+            - Lasting settings go into a .rascal.yml next to .gitlab-ci.yml, like
+              before_shell (commands to run before each command) and variables.
+            - Environments are named after the project directory's name. Checkouts
+              with the same directory name share their services and databases.
+            - If something does not work, rascal status JOB shows what rascal made of
+              the job, and how its services run.
 
-          For more about a command, run "rascal help COMMAND". rascal --version prints the version.
-          The README explains setup, configuration and troubleshooting:
+          For more about a command, run "rascal help COMMAND". rascal --version prints
+          the version. The README that came with this version of rascal explains
+          setup, configuration and troubleshooting:
         TEXT
         say "  #{README_PATH}"
         say
@@ -62,20 +75,36 @@ module Rascal
         true
       end
 
-      def self.start(*)
+      def self.start(given_args = ARGV, config = {})
         IOHelper.setup
-        super
+        super(help_arguments(given_args), config)
+      end
+
+      # `rascal run --help` or `rascal shell rspec -h` show the command's help, like
+      # `rascal help run`. Only before `--`, so commands can have their own --help.
+      def self.help_arguments(args)
+        options = args.take_while { |arg| arg != '--' }
+        return args unless (options & %w[-h --help]).any?
+
+        # The first argument that is neither an option nor the value of -c.
+        command = options.reject.with_index do |arg, index|
+          arg.start_with?('-') || (index > 0 && %w[-c --config-file].include?(options[index - 1]))
+        end.first
+        command && command != 'help' ? ['help', command] : ['help']
       end
 
 
       map "shell" => "_shell"
       desc 'shell JOB', "Open bash in a job's environment"
       long_desc indented(<<~TEXT), wrap: false
-          Opens bash in the environment of a CI job, like for a Rails console or a debugger,
-          with before_shell and after_shell around it. Needs a terminal. Without one, like as
-          an AI agent, use rascal run.
+        Opens bash in the environment of a CI job, like for a Rails console or a
+        debugger, with before_shell and after_shell around it. Needs a terminal.
 
-            rascal shell rspec
+          rascal shell rspec
+
+        Without a terminal, like as an AI agent, debug with rascal run: run single
+        examples, add output to the code, or inspect state with bin/rails runner. A
+        forgotten debugger call gets no input there instead of hanging.
       TEXT
       command_environment_options
       def _shell(environment_name = nil)
@@ -86,13 +115,14 @@ module Rascal
 
       desc 'status [JOB]', "Show a job's environment, starts nothing"
       long_desc indented(<<~TEXT), wrap: false
-          Shows what rascal made of the CI config: the image, services, variables, before_shell
-          and after_shell, and any problems. Also shows what exists in Docker: whether images are
-          downloaded, the state of each service with the command to see its logs, the network,
-          volumes and running commands. Starts and downloads nothing. Without a job, shows all.
+        Shows what rascal made of the CI config: the image, services, variables,
+        before_shell and after_shell, and any problems. Also shows what exists in
+        Docker: whether images are downloaded, the state of each service with the
+        command to see its logs, the network, volumes and running commands. Starts and
+        downloads nothing. Without a job, shows all.
 
-            rascal status rspec
-            rascal status --json
+          rascal status rspec
+          rascal status --json
       TEXT
       method_option :json, type: :boolean, desc: 'Print JSON, for scripts and agents'
       def status(environment_name = nil)
@@ -103,8 +133,9 @@ module Rascal
 
       desc 'environments', 'List the jobs you can use'
       long_desc indented(<<~TEXT), wrap: false
-          Lists the jobs of .gitlab-ci.yml, one per line, including ones rascal cannot start,
-          like deploy jobs. Pick the one that runs the tests, usually rspec or test.
+        Lists the jobs of .gitlab-ci.yml, one per line, including ones rascal cannot
+        start, like deploy jobs. A job's environment has the job's name. Pick the job
+        that runs the tests, usually rspec or test.
       TEXT
       def environments
         handle_error do
@@ -117,18 +148,26 @@ module Rascal
       stop_on_unknown_option! :_run
       desc 'run JOB -- COMMAND', "Run a command in a job's environment"
       long_desc indented(<<~TEXT), wrap: false
-          Runs a command in the environment of a CI job, without a terminal, and exits with the
-          command's status. Starts the job's services first, and waits until they accept
-          connections. stdout is the command's output, rascal's own messages go to stderr.
+        Runs a command in the environment of a CI job, without a terminal, and exits
+        with the command's status. If rascal itself fails, it exits with 1 and says
+        why on stderr. Before the command, rascal starts the job's services, waits
+        until they accept connections, and runs before_shell. after_shell runs after
+        the command. Their output goes to stdout, rascal's own messages to stderr.
 
-          Everything after -- is passed on as arguments. For shell syntax, use bash -c:
+        Everything after -- is passed on as arguments. For shell syntax, use bash -c:
 
-            rascal run rspec -- bundle exec rspec spec/models/user_spec.rb
-            rascal run rspec -- bash -c 'bin/rails db:migrate && bundle exec rspec'
+          rascal run rspec -- bundle exec rspec spec/models/user_spec.rb:42
+          rascal run rspec -- bash -c 'bin/rails db:migrate && bundle exec rspec'
 
-          Options go before --. Variables and the SSH agent can change for a single command:
+        Options go before --. They change the container for this one command:
 
-            rascal run rspec --unset-env CI --ssh-agent -- bundle update rack --conservative
+          rascal run rspec --env RAILS_ENV=test -- bin/rails runner 'p User.count'
+          rascal run rspec --ssh-agent -- bundle install
+
+        With --ssh-agent, all code in the container can use your SSH keys, so only
+        pass it to commands that need it, like fetching private gems. As an AI agent,
+        ask your user first. To update gems in a project whose Gemfile depends on CI,
+        see "Changing dependencies" in the README.
       TEXT
       command_environment_options
       def _run(environment_name = nil, *command)
@@ -140,12 +179,13 @@ module Rascal
 
       desc 'clean JOB | --all', "Remove a job's services and network"
       long_desc indented(<<~TEXT), wrap: false
-          Stops and removes the environment's services with their data, like databases, its
-          network and leftover command containers. Named volumes, like caches, stay unless you
-          pass --volumes. Files in the project stay. The next command starts the services fresh.
+        Stops and removes the environment's services with their data, like databases,
+        its network and leftover command containers. Named volumes, like caches, stay
+        unless you pass --volumes. Files in the project and downloaded images stay.
+        The next command starts the services fresh.
 
-            rascal clean rspec
-            rascal clean --all --volumes
+          rascal clean rspec
+          rascal clean --all --volumes      # all jobs, and their volumes
       TEXT
       method_option :volumes, type: :boolean, desc: 'Also remove volumes, like caches'
       method_option :all, type: :boolean, desc: 'Clean the environments of all jobs'
@@ -157,10 +197,11 @@ module Rascal
 
       desc 'update JOB | --all', "Pull a job's latest images"
       long_desc indented(<<~TEXT), wrap: false
-          Pulls the latest images of the job and its services. Services that already run keep
-          their old image until you run rascal clean.
+        Pulls the latest Docker images of the job and its services. Services that
+        already run keep their old image until you run rascal clean. To update gems,
+        use rascal run, like rascal run rspec -- bundle update rack.
 
-            rascal update rspec
+          rascal update rspec
       TEXT
       method_option :all, type: :boolean, desc: 'Update the environments of all jobs'
       def update(environment_name = nil)

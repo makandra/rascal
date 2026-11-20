@@ -15,11 +15,11 @@ describe 'rascal help' do
 
     expect(result.stdout).to include(
       "rascal run rspec -- bundle install",
-      "rascal clean --all --volumes",
-      "rascal status JOB shows what rascal made of the job",
+      "rascal does not run the job's before_script or script.",
+      "rascal clean rspec",
       "  #{Rascal::CLI::Main::README_PATH}\n",
     )
-    expect(File).to exist(Rascal::CLI::Main::README_PATH)
+    # Seven commands, including help.
     command_lines = result.stdout[/^Commands:\n(.*?)\n\n/m, 1].lines
     expect(command_lines.size).to eq 7
     expect(command_lines).to all(satisfy { |line| !line.include?('...') })
@@ -33,11 +33,25 @@ describe 'rascal help' do
     expect(files).to include('README.md')
   end
 
+  it 'fits its own text into 80 columns, apart from option lists' do
+    outputs = ['help', 'run', 'shell', 'status', 'environments', 'clean', 'update'].collect do |command|
+      command == 'help' ? run_rascal!('help').stdout : run_rascal!('help', command).stdout
+    end
+
+    lines = outputs.join.lines.reject { |line| line.match?(/\A\s*(-|\[)/) }
+    expect(lines.select { |line| line.chomp.length > 80 }).to eq []
+  end
+
+  it 'shows the help of a command for --help or -h before --' do
+    expect(run_rascal!('run', '--help').stdout).to include('Usage:', 'rascal run rspec -- bash -c')
+    expect(run_rascal!('shell', 'rspec', '-h').stdout).to include('Opens bash in the environment')
+  end
+
   it 'explains each command with examples that stay on one line' do
     run = run_rascal!('help', 'run')
     status = run_rascal!('help', 'status')
 
-    expect(run.stdout).to include("    rascal run rspec --unset-env CI --ssh-agent -- bundle update rack --conservative\n")
+    expect(run.stdout).to include("    rascal run rspec -- bash -c 'bin/rails db:migrate && bundle exec rspec'\n")
     expect(status.stdout).to include('Without a job, shows all.')
   end
 

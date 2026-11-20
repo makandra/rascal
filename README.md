@@ -78,7 +78,8 @@ rascal run rspec -- bundle install
 
 The examples below just say `rascal`. If rascal is already installed, mise and rbenv name the Ruby
 that has it when you run `rascal` in a project whose Ruby does not. Check the version with
-`rascal --version`. This README describes the latest version.
+`rascal --version`. Each installed version comes with its own copy of this README, which
+`rascal help` names.
 
 You also need:
 

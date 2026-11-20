@@ -8,7 +8,8 @@ Rascal follows semantic versioning. This has little consequence pre 1.0, so expe
 
 - `rascal help` teaches basic usage on its own: what rascal does, a typical session from setting
   up to tearing down, things to know, and the path of the README that comes with the gem. The help
-  of each command has examples, which no longer break across lines.
+  of each command has examples, which no longer break across lines. `rascal COMMAND --help` shows
+  the command's help. Requires Thor 1.3 or newer.
 
 
 ## 0.5.2 (2026-11-20)
