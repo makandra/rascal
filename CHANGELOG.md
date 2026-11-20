@@ -4,7 +4,7 @@ All notable changes to this project will be documented here.
 
 Rascal follows semantic versioning. This has little consequence pre 1.0, so expect breaking changes.
 
-## Unreleased
+## 0.5.1 (2026-11-20)
 
 - Fix services that were unreachable by their alias after rascal restarted their stopped container
   (with current Docker versions). rascal now connects such containers to the network again, also
