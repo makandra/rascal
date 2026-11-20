@@ -31,10 +31,8 @@ jobs:
       uses: ruby/setup-ruby@v1
       with:
         ruby-version: "${{ matrix.ruby }}"
-        bundler: "${{ matrix.bundler || 'default' }}"
+        bundler: "${{ matrix.bundler || 'Gemfile.lock' }}"
     - name: Bundle
-      run: |
-        gem install bundler:2.1.4
-        bundle install --no-deployment
+      run: bundle install
     - name: Run tests
       run: bundle exec rake
