@@ -1,4 +1,5 @@
 require 'digest/sha1'
+require 'time'
 
 # Replaces the Docker CLI for specs that check which docker commands rascal calls,
 # without a Docker daemon. It records every command and answers queries from a
