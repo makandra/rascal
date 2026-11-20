@@ -45,11 +45,16 @@ module Rascal
         # that should not be part of the project's CI config.
         rascal_block = hash_or_empty(@ci_config['.rascal'])
         rascal_file = local_rascal_config
-        @rascal_config = deep_merge(rascal_block, rascal_file)
-        @rascal_job_configs = hash_or_empty(@rascal_config.delete('jobs'))
-        # Images from rascal's settings, from the lowest to the highest priority, for #image.
+        @rascal_config = deep_merge(rascal_block.except('jobs'), rascal_file.except('jobs'))
+        block_jobs = hash_or_empty(rascal_block['jobs'])
+        file_jobs = hash_or_empty(rascal_file['jobs'])
+        # An empty entry in .rascal.yml, like one with all its settings commented out, changes nothing.
+        @rascal_job_configs = (block_jobs.keys | file_jobs.keys).to_h do |key|
+          [key, deep_merge(hash_or_empty(block_jobs[key]), hash_or_empty(file_jobs[key]))]
+        end
+        # Images from rascal's settings, from the lowest to the highest priority, for #combined_image.
         @rascal_images = lambda do |key|
-          [rascal_block, rascal_file, hash_or_empty(hash_or_empty(rascal_block['jobs'])[key]), hash_or_empty(hash_or_empty(rascal_file['jobs'])[key])]
+          [rascal_block, rascal_file, hash_or_empty(block_jobs[key]), hash_or_empty(file_jobs[key])]
             .select { |settings| settings.key?('image') }.collect { |settings| settings['image'] }
         end
       end
@@ -115,8 +120,9 @@ module Rascal
             rascal_job_config.except('variables'),
           )
           if (rascal_images = @rascal_images.call(key)).any?
-            job_image = inherit_default(job_config)['image']
-            config['image'] = combined_image([job_image, *rascal_images].compact, key, problems)
+            base = inherit_default(job_config)
+            job_images = base.key?('image') ? [base['image']] : []
+            config['image'] = combined_image(job_images + rascal_images, key, problems)
           end
           next if config['hide']
 
@@ -144,8 +150,9 @@ module Rascal
       # Combines a job's image with the images from rascal's settings, given from the lowest to the
       # highest priority. Each may be a name, the long form `{ name: ..., entrypoint: ... }`, or a
       # `!reference`. A long form without a name changes only parts of the image below it, like
-      # `{ entrypoint: [''] }` to skip the entrypoint. Only resolves references in the images it
-      # needs, so a job whose image rascal's settings replace does not get problems from its own.
+      # `{ entrypoint: [''] }` to skip the entrypoint. A name, or nil for no image, replaces what is
+      # below it. Only resolves references in the images it needs, so a job whose image rascal's
+      # settings replace does not get problems from its own.
       def combined_image(images, key, problems)
         combined = {}
         images.reverse_each do |image|

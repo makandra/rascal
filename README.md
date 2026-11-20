@@ -423,7 +423,8 @@ jobs:
       entrypoint: ['']
 ```
 
-The job keeps its image. Once the image is downloaded, `rascal status` shows its entrypoint. To see
+The job keeps its image: an image without a `name` only changes the parts it gives, while one with a
+`name` replaces the image as a whole. Once the image is downloaded, `rascal status` shows its entrypoint. To see
 what it did, look at it, like `rascal run rspec -- cat /docker-entrypoint.sh`, and do what your
 commands need yourself.
 

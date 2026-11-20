@@ -516,6 +516,28 @@ module Rascal
           expect(jobs.environment('replaced').image.name).to eq 'fixed-image:2'
         end
 
+        it 'keeps the .rascal block settings of a job whose entry in .rascal.yml is empty, and lets image: ~ remove the image' do
+          gitlab_jobs(<<~YAML)
+            .rascal:
+              image: rascal-image:1
+              jobs:
+                kept:
+                  services:
+                    - postgres:16
+                removed:
+                  image: ~
+            kept:
+              image: job-image:1
+            removed:
+              image: job-image:1
+          YAML
+          @tmp_dir.join('repo', '.rascal.yml').write("jobs:\n  kept:\n")
+          jobs = Jobs.new(@tmp_dir.join('repo', '.gitlab-ci.yml'))
+
+          expect(jobs.environment('kept').services.collect(&:aliases)).to eq [['postgres']]
+          expect(jobs.environment('removed').problems).to eq ["Job 'removed' has no image. Set `image:` in the job, in `default:`, or in the `.rascal` block (`.rascal: jobs: removed: image:`)."]
+        end
+
         it 'lets .rascal job config override the .rascal block' do
           environment = from_config(<<~YAML, 'job')
             .rascal:
