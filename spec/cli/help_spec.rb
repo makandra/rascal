@@ -16,7 +16,7 @@ describe 'rascal help' do
     expect(result.stdout).to include(
       "rascal run rspec -- bundle install",
       "rascal does not run the job's before_script or script.",
-      "rascal clean rspec",
+      "rascal clean --all --volumes",
       "  #{Rascal::CLI::Main::README_PATH}\n",
     )
     # Seven commands, including help.
@@ -50,6 +50,8 @@ describe 'rascal help' do
 
     expect(run_rascal!('run', '--help').stdout).to include('Usage:', 'rascal run rspec -- bash -c')
     expect(run_rascal!('shell', 'rspec', '-h').stdout).to include('Opens bash in the environment')
+    expect(run_rascal!('run', 'rspec', '--help').stdout).to include('Usage:')
+    expect(run_rascal!('run', '--env', 'X=1', '-h').stdout).to include('Usage:')
     run_rascal!('run', 'rspec', 'ls', '-h')
     run_rascal!('run', 'rspec', '--', 'grep', '--help')
     expect(docker.commands.grep(/container run/).collect { |command| command[/\nls -h\n|\ngrep --help\n/] }).to eq ["\nls -h\n", "\ngrep --help\n"]

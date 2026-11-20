@@ -40,25 +40,34 @@ module Rascal
             rascal run rspec -- bin/rails db:create db:schema:load
             rascal run rspec -- bundle exec rspec spec/models/user_spec.rb
             rascal shell rspec             # interactive bash, needs a terminal
-            rascal clean rspec             # stop its services, deletes their data
+            rascal clean --all --volumes   # tear down: services, their data, volumes
 
         TEXT
         super
         say <<~TEXT
           Good to know:
             - rascal does not run the job's before_script or script. Set the project
-              up yourself, following them in .gitlab-ci.yml.
+              up yourself following them, but skip steps that only work on CI, and do
+              not overwrite local files like config/database.yml.
             - Each command runs in a new container. Only files in the project and in
               volumes stay, and services keep running with their data. Gems stay if
               BUNDLE_PATH points into the project (see Variables in rascal status).
+            - Commands reach the services under the host names rascal status shows,
+              like db. rascal publishes no ports, so you cannot open a server in the
+              container from your browser.
             - The container gets the job's variables and CI=true, not your shell's
               variables. Setup may change files like Gemfile.lock: check git status.
+              If the Gemfile checks CI, read "Changing dependencies" in the README
+              before you update gems.
             - Options go before --, like rascal run rspec --env NAME=VALUE -- ...
               --env, --unset-env and --ssh-agent change only that one command.
-            - Lasting settings go into a .rascal.yml next to .gitlab-ci.yml, like
-              before_shell (commands to run before each command) and variables.
-            - Environments are named after the project directory's name. Checkouts
-              with the same directory name share their services and databases.
+            - Lasting settings go into a .rascal.yml next to .gitlab-ci.yml, which you
+              keep out of Git, like "variables: { BUNDLE_PATH: tmp/bundle }" or
+              before_shell, commands to run before each command. The project may
+              already have some in a .rascal block in .gitlab-ci.yml.
+            - Docker resources are named after the project directory's name. Checkouts
+              with the same directory name share their services and databases. In a
+              Git worktree, Git does not work in the container, so prefer clones.
             - If something does not work, rascal status JOB shows what rascal made of
               the job, and how its services run.
 
@@ -80,16 +89,20 @@ module Rascal
         super(help_arguments(given_args), config)
       end
 
+      # Options that take a value as the next argument.
+      OPTIONS_WITH_VALUES = %w[-c --config-file --env --unset-env].freeze
+
       # `rascal run --help` or `rascal shell rspec -h` show the command's help, like
-      # `rascal help run`. For `run`, only before the job, since what follows the job is
-      # the command to run, which may have its own -h.
+      # `rascal help run`. For `run`, only up to the argument after the job, since what
+      # follows is the command to run, which may have its own -h.
       def self.help_arguments(args)
-        # The arguments that are neither options nor the value of -c, like the command and the job.
+        # The arguments that are neither options nor option values, like the command and the job.
         positional = args.each_index.reject do |index|
-          args[index].start_with?('-') || (index > 0 && %w[-c --config-file].include?(args[index - 1]))
+          args[index].start_with?('-') || (index > 0 && OPTIONS_WITH_VALUES.include?(args[index - 1]))
         end
         command = args[positional.first] if positional.any?
-        last_index = command == 'run' && positional[1] ? positional[1] : (args.index('--') || args.size)
+        last_index = args.index('--') || args.size
+        last_index = [last_index, positional[1] + 2].min if command == 'run' && positional[1]
         return args unless (args.take(last_index) & %w[-h --help]).any?
 
         command && command != 'help' ? ['help', command] : ['help']
@@ -133,7 +146,7 @@ module Rascal
         end
       end
 
-      desc 'environments', 'List the jobs you can use'
+      desc 'environments', 'List the jobs of .gitlab-ci.yml'
       long_desc indented(<<~TEXT), wrap: false
         Lists the jobs of .gitlab-ci.yml, one per line, including ones rascal cannot
         start, like deploy jobs. A job's environment has the job's name. Pick the job
@@ -155,6 +168,7 @@ module Rascal
         why on stderr. Before the command, rascal starts the job's services, waits
         until they accept connections, and runs before_shell. after_shell runs after
         the command. Their output goes to stdout, rascal's own messages to stderr.
+        A failing before_shell does not stop the command or change its status.
 
         Everything after -- is passed on as arguments. For shell syntax, use bash -c:
 
@@ -168,8 +182,8 @@ module Rascal
 
         With --ssh-agent, all code in the container can use your SSH keys, so only
         pass it to commands that need it, like fetching private gems. As an AI agent,
-        ask your user first. To update gems in a project whose Gemfile depends on CI,
-        see "Changing dependencies" in the README.
+        ask your user first. If the Gemfile checks CI, read "Changing dependencies" in
+        the README before you update gems.
       TEXT
       command_environment_options
       def _run(environment_name = nil, *command)
@@ -201,7 +215,7 @@ module Rascal
       long_desc indented(<<~TEXT), wrap: false
         Pulls the latest Docker images of the job and its services. Services that
         already run keep their old image until you run rascal clean. To update gems,
-        use rascal run, like rascal run rspec -- bundle update rack.
+        see "Changing dependencies" in the README.
 
           rascal update rspec
       TEXT
